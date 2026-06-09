@@ -28,6 +28,11 @@ return [
 
     // Use an async connection such as redis for throughput; afterResponse keeps ingest unblocked even on sync.
     'queue' => env('HONE_QUEUE_CONNECTION'),
+    'mcp' => [
+        'path' => env('HONE_MCP_PATH', '/mcp'),
+        'token' => env('HONE_MCP_TOKEN'),
+        'local_name' => env('HONE_MCP_LOCAL_NAME', 'hone'),
+    ],
     'database' => [
         'connection' => 'hone',
         'host' => env('HONE_DB_HOST', '127.0.0.1'),

@@ -7,6 +7,7 @@ namespace ArtisanBuild\HoneServer\Tests;
 use ArtisanBuild\HoneServer\HoneServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Mcp\Server\McpServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
@@ -24,7 +25,10 @@ abstract class TestCase extends Orchestra
      */
     protected function getPackageProviders($app): array
     {
-        return [HoneServerServiceProvider::class];
+        return [
+            McpServiceProvider::class,
+            HoneServerServiceProvider::class,
+        ];
     }
 
     /**
