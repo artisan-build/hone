@@ -17,7 +17,7 @@ final class AggregateWindow
     public const METRICS = ['count', 'avg', 'max', 'p95', 'p99'];
 
     /**
-     * @return list<array{normalized_key: string, count: float|null, sample_count: int, avg: float|null, max: float|null, p95: float|null, p99: float|null}>
+     * @return list<array{normalized_key: string, count: float|null, sample_count: int, avg: float|null, max: float|null, p95: float|null, p99: float|null, last_bucket_date: string|null}>
      */
     public function topOffenders(string $recordType, int $days, ?string $app, ?string $deploy, string $sortMetric, int $limit): array
     {
@@ -31,6 +31,23 @@ final class AggregateWindow
             ->get()
             ->map(fn (object $row): array => $this->formatCombinedRow($row))
             ->all();
+    }
+
+    /**
+     * @return array{count: float}
+     */
+    public function total(string $recordType, int $days, ?string $app): array
+    {
+        $row = DB::connection('hone')->table('aggregates')
+            ->selectRaw("coalesce(sum(value) filter (where metric = 'count'), 0) as count")
+            ->where('record_type', $recordType)
+            ->whereDate('bucket_date', '>=', Carbon::now('UTC')->subDays($days)->toDateString())
+            ->when($app !== null, fn (Builder $query) => $query->where('app', $app))
+            ->first();
+
+        return [
+            'count' => (float) ($row?->count ?? 0),
+        ];
     }
 
     /**
@@ -88,6 +105,7 @@ final class AggregateWindow
             ->selectRaw("coalesce(sum(value) filter (where metric = 'count'), 0) as sample_count")
             ->selectRaw("sum(value * sample_count) filter (where metric = 'avg') / nullif(sum(sample_count) filter (where metric = 'avg'), 0) as avg")
             ->selectRaw("max(value) filter (where metric = 'max') as max")
+            ->selectRaw('max(bucket_date) as last_bucket_date')
             // Percentiles cannot be averaged across daily aggregate buckets; use the worst daily percentile in the window.
             ->selectRaw("max(value) filter (where metric = 'p95') as p95")
             ->selectRaw("max(value) filter (where metric = 'p99') as p99")
@@ -101,7 +119,7 @@ final class AggregateWindow
     }
 
     /**
-     * @return array{normalized_key: string, count: float|null, sample_count: int, avg: float|null, max: float|null, p95: float|null, p99: float|null}
+     * @return array{normalized_key: string, count: float|null, sample_count: int, avg: float|null, max: float|null, p95: float|null, p99: float|null, last_bucket_date: string|null}
      */
     private function formatCombinedRow(object $row): array
     {
@@ -113,6 +131,7 @@ final class AggregateWindow
             'max' => $this->floatOrNull($row->max),
             'p95' => $this->floatOrNull($row->p95),
             'p99' => $this->floatOrNull($row->p99),
+            'last_bucket_date' => $row->last_bucket_date === null ? null : (string) $row->last_bucket_date,
         ];
     }
 

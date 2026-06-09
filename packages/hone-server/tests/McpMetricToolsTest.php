@@ -4,12 +4,21 @@ declare(strict_types=1);
 
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Support\AggregateWindow;
+use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\ExceptionsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\LogVolumeByLevelTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\MailVolumeTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\NotificationVolumeTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\QueryMetricTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\QueueThroughputTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RegressionCheckTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\ScheduledTaskHealthTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowJobsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowOutgoingRequestsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowQueriesTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowRequestsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\TopUsersTool;
 use ArtisanBuild\HoneServer\Models\Aggregate;
 use Illuminate\Support\Carbon;
 
@@ -151,6 +160,136 @@ it('registers and serves all metric tools', function (string $toolClass): void {
     SlowOutgoingRequestsTool::class,
     QueryMetricTool::class,
     RegressionCheckTool::class,
+]);
+
+it('returns log volume by level without exposing messages', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'log', 'error', $today, 5, 0, 0, 0, 0);
+    seedAggregateBucket('checkout', 'log', 'info', $today, 20, 0, 0, 0, 0);
+
+    HoneMcpServer::tool(LogVolumeByLevelTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('error')
+        ->assertSee('info')
+        ->assertSee('5')
+        ->assertSee('20')
+        ->assertDontSee('message');
+});
+
+it('returns top users ordered by user id count only', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'user', '42', $today, 9, 0, 0, 0, 0);
+    seedAggregateBucket('checkout', 'user', '7', $today, 3, 0, 0, 0, 0);
+
+    $rows = app(AggregateWindow::class)->topOffenders('user', 7, 'checkout', null, 'count', 10);
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[0]['normalized_key'])->toBe('42')
+        ->and($rows[0]['count'])->toBe(9.0)
+        ->and($rows[1]['normalized_key'])->toBe('7')
+        ->and($rows[1]['count'])->toBe(3.0);
+
+    HoneMcpServer::tool(TopUsersTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('42')
+        ->assertSee('7')
+        ->assertDontSee('email')
+        ->assertDontSee('username');
+});
+
+it('returns exception volume with the latest seen bucket date', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'exception', 'RuntimeException app/Actions/Checkout.php:12', $today->copy()->subDay(), 2, 0, 0, 0, 0);
+    seedAggregateBucket('checkout', 'exception', 'RuntimeException app/Actions/Checkout.php:12', $today, 4, 0, 0, 0, 0);
+
+    $rows = app(AggregateWindow::class)->topOffenders('exception', 7, 'checkout', null, 'count', 10);
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['count'])->toBe(6.0)
+        ->and($rows[0]['last_bucket_date'])->toBe($today->toDateString());
+
+    HoneMcpServer::tool(ExceptionsTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('RuntimeException app/Actions/Checkout.php:12')
+        ->assertSee($today->toDateString())
+        ->assertSee('6');
+});
+
+it('returns mail and queue throughput totals across keys and days', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'mail', 'App\\Mail\\Receipt', $today->copy()->subDay(), 4, 0, 0, 0, 0);
+    seedAggregateBucket('checkout', 'mail', 'App\\Mail\\Welcome', $today, 6, 0, 0, 0, 0);
+    seedAggregateBucket('checkout', 'queued-job', 'App\\Jobs\\CapturePayment', $today->copy()->subDay(), 7, 0, 0, 0, 0);
+    seedAggregateBucket('checkout', 'queued-job', 'App\\Jobs\\SendReceipt', $today, 8, 0, 0, 0, 0);
+
+    expect(app(AggregateWindow::class)->total('mail', 7, 'checkout')['count'])->toBe(10.0)
+        ->and(app(AggregateWindow::class)->total('queued-job', 7, 'checkout')['count'])->toBe(15.0);
+
+    HoneMcpServer::tool(MailVolumeTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('10');
+
+    HoneMcpServer::tool(QueueThroughputTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('15')
+        ->assertSee('App\\\\Jobs\\\\SendReceipt');
+});
+
+it('returns cache stats by store and type', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'cache-event', 'redis:hit', $today, 100, 0, 0, 0, 0);
+    seedAggregateBucket('checkout', 'cache-event', 'redis:miss', $today, 10, 0, 0, 0, 0);
+
+    HoneMcpServer::tool(CacheStatsTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('redis:hit')
+        ->assertSee('redis:miss')
+        ->assertSee('100')
+        ->assertSee('10');
+});
+
+it('returns scheduled task and command duration stats by name', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'scheduled-task', 'reports:send', $today, 3, 25, 80, 70, 75);
+    seedAggregateBucket('checkout', 'command', 'cache:warm', $today, 5, 12, 30, 25, 28);
+
+    HoneMcpServer::tool(ScheduledTaskHealthTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('reports:send')
+        ->assertSee('25')
+        ->assertSee('80')
+        ->assertSee('3');
+
+    HoneMcpServer::tool(CommandStatsTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('cache:warm')
+        ->assertSee('12')
+        ->assertSee('30')
+        ->assertSee('5');
+});
+
+it('registers and serves all volume tools', function (string $toolClass): void {
+    HoneMcpServer::tool($toolClass)->assertOk();
+
+    $property = new ReflectionProperty(HoneMcpServer::class, 'tools');
+
+    expect($property->getDefaultValue())->toContain($toolClass);
+})->with([
+    ExceptionsTool::class,
+    CacheStatsTool::class,
+    QueueThroughputTool::class,
+    MailVolumeTool::class,
+    NotificationVolumeTool::class,
+    ScheduledTaskHealthTool::class,
+    CommandStatsTool::class,
+    LogVolumeByLevelTool::class,
+    TopUsersTool::class,
 ]);
 
 it('keeps slow tool record type mappings aligned with stored Nightwatch values', function (string $toolClass, string $recordType): void {

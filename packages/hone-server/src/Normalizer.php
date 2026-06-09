@@ -19,6 +19,9 @@ final class Normalizer
             'queued-job', 'command', 'scheduled-task' => self::string($record['name'] ?? $recordType),
             'exception' => trim(self::string($record['class'] ?? '').' '.self::string($record['file'] ?? '').(isset($record['line']) ? ':'.self::string($record['line']) : '')),
             'outgoing-request' => trim(self::string($record['method'] ?? '').' '.self::string($record['host'] ?? $record['url'] ?? '')),
+            'log' => self::string($record['level'] ?? $recordType),
+            'user' => self::string($record['id'] ?? $recordType),
+            'cache-event' => trim(self::string($record['store'] ?? '').':'.self::string($record['type'] ?? '')),
             default => $recordType,
         };
 

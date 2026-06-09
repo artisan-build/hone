@@ -145,6 +145,9 @@ it('normalizes raw Nightwatch record type values', function (string $recordType,
     'queued job' => ['queued-job', ['name' => 'SendWelcomeEmail'], 'SendWelcomeEmail'],
     'outgoing request' => ['outgoing-request', ['method' => 'GET', 'host' => 'api.example.com'], 'GET api.example.com'],
     'scheduled task' => ['scheduled-task', ['name' => 'backup:run'], 'backup:run'],
+    'log level' => ['log', ['level' => 'error'], 'error'],
+    'user id' => ['user', ['id' => '42'], '42'],
+    'cache store and type' => ['cache-event', ['store' => 'redis', 'type' => 'hit'], 'redis:hit'],
 ]);
 
 it('persists after response on sync queues using the token app instead of envelope app', function (): void {
