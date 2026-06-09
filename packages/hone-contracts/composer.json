@@ -21,6 +21,11 @@
             "ArtisanBuild\\HoneContracts\\Tests\\": "tests/"
         }
     },
+    "scripts": {
+        "test": "pest",
+        "lint": "pint",
+        "lint:test": "pint --test"
+    },
     "config": {
         "sort-packages": true,
         "allow-plugins": {

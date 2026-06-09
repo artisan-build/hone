@@ -105,6 +105,9 @@
             "@test",
             "composer audit"
         ],
+        "packages:check": [
+            "bash -c 'set -e; for d in packages/*/; do echo \"== ${d} ==\"; (cd \"$d\" && composer install --no-interaction --quiet && composer lint:test && composer test); done'"
+        ],
         "report": [
             "@php -r \"echo PHP_EOL . '=== Rector ===' . PHP_EOL;\"",
             "-@rector",

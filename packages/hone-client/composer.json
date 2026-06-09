@@ -26,6 +26,11 @@
             "ArtisanBuild\\HoneClient\\Tests\\": "tests/"
         }
     },
+    "scripts": {
+        "test": "pest",
+        "lint": "pint",
+        "lint:test": "pint --test"
+    },
     "extra": {
         "laravel": {
             "providers": [
