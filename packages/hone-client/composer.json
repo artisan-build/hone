@@ -4,6 +4,16 @@
     "keywords": ["hone", "telemetry", "nightwatch", "laravel", "observability"],
     "license": "MIT",
     "type": "library",
+    "version": "1.0.0",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../hone-contracts",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
     "require": {
         "php": "^8.3",
         "artisan-build/hone-contracts": "^1.0",

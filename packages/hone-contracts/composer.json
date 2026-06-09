@@ -4,6 +4,7 @@
     "keywords": ["hone", "telemetry", "nightwatch", "laravel", "contracts"],
     "license": "MIT",
     "type": "library",
+    "version": "1.0.0",
     "require": {
         "php": "^8.3"
     },
