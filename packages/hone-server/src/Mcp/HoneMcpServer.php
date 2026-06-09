@@ -4,16 +4,25 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp;
 
+use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\ExceptionsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\LogVolumeByLevelTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\MailVolumeTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\NotificationVolumeTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\QueryMetricTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\QueueThroughputTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RecordTypesTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RegressionCheckTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\ScheduledTaskHealthTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowJobsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowOutgoingRequestsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowQueriesTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowRequestsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\TopUsersTool;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Attributes\Instructions;
 use Laravel\Mcp\Server\Attributes\Name;
@@ -39,5 +48,14 @@ final class HoneMcpServer extends Server
         SlowOutgoingRequestsTool::class,
         QueryMetricTool::class,
         RegressionCheckTool::class,
+        ExceptionsTool::class,
+        CacheStatsTool::class,
+        QueueThroughputTool::class,
+        MailVolumeTool::class,
+        NotificationVolumeTool::class,
+        ScheduledTaskHealthTool::class,
+        CommandStatsTool::class,
+        LogVolumeByLevelTool::class,
+        TopUsersTool::class,
     ];
 }
