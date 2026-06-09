@@ -110,6 +110,113 @@ normal state, not an error.** The wire protocol is built to tolerate it:
 
 ---
 
+## Deploying on Laravel Cloud
+
+Run one isolated Laravel Cloud environment per client: the Hone app, one Postgres database,
+and Redis. Hone stores its thin app tables and telemetry tables in Postgres through the
+`hone` connection; in the default app setup `HONE_DB_*` points at the same database as
+`DB_*`.
+
+Required production environment:
+
+- `DB_CONNECTION=pgsql` plus `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and
+  `DB_PASSWORD`.
+- `HONE_DB_HOST`, `HONE_DB_PORT`, `HONE_DB_DATABASE`, `HONE_DB_USERNAME`, and
+  `HONE_DB_PASSWORD`, usually copied from the matching `DB_*` values.
+- `HONE_APP_TOKENS`, as comma-separated `app-id=sha256_token_hash` entries.
+- `HONE_MCP_TOKEN` and `HONE_MCP_PATH`; the default MCP HTTP path is `/mcp`.
+- `QUEUE_CONNECTION=redis` and `HONE_QUEUE_CONNECTION=redis` so accepted ingest batches
+  are processed by Redis workers.
+- `HONE_RETENTION_RAW_HOURS`, `HONE_RETENTION_AGGREGATE_DAYS`, and
+  `HONE_RETENTION_SAMPLE_DAYS`; the defaults are `72`, `90`, and `7`.
+- `NIGHTWATCH_DEPLOY`, used as the deploy dimension when source apps report it.
+
+Do not enable Laravel Cloud's built-in Nightwatch integration for the Hone app. Hone uses
+Nightwatch instrumentation in source apps but does not send telemetry to Nightwatch Cloud;
+Cloud's Nightwatch toggle would ship data to Nightwatch's hosted service and conflicts with
+this setup.
+
+Add a build step that writes the deployed commit to the environment file:
+
+```shell
+echo "NIGHTWATCH_DEPLOY=$(git rev-parse --short HEAD)" >> .env
+```
+
+This assumes `.git` is present during the build. If your build runs from an exported archive,
+write the short commit SHA from CI instead, for example from `github.sha` in GitHub Actions.
+
+After deploy, run `php artisan migrate --force`; the `hone-server` migrations create the
+`raw_events`, `aggregates`, and `samples` tables on the `hone` connection. Run Laravel's
+scheduler in the environment; the package schedules `php artisan hone:maintain` hourly,
+which runs `hone:rollup` and then `hone:prune`. Run a Redis queue worker cluster for the
+default queue so `ProcessTelemetryBatch` jobs drain accepted ingest batches.
+
+## Adding a source app
+
+On the Hone server, issue a source application token:
+
+```shell
+php artisan hone:issue-token <app-id>
+```
+
+The app id must be non-empty and cannot contain `=` or `,`. The command prints the plaintext
+token once, its SHA-256 hash, and the exact `HONE_APP_TOKENS` entry. Add that
+`app-id=sha256hash` entry to `HONE_APP_TOKENS` on the Hone server, comma-separated from any
+existing entries, and redeploy.
+
+In the source Laravel app, install Nightwatch and the Hone client:
+
+```shell
+composer require laravel/nightwatch artisan-build/hone-client
+php artisan hone:install
+```
+
+`hone:install` prompts for the Hone ingest URL and plaintext token, or accepts
+`--url=` and `--token=`. Use the server ingest URL, ending in `/ingest`; the route is named
+`hone-server.ingest`. The installer writes `HONE_URL`, `HONE_TOKEN`, and a truthy
+`NIGHTWATCH_ENABLED=true` when needed, then pins `artisan-build/hone-client` to a clean caret
+major constraint in `composer.json`. No `NIGHTWATCH_TOKEN` is needed for Hone. Set
+`NIGHTWATCH_DEPLOY` in the source app at deploy time so Hone can compare releases.
+
+## Connecting a coding agent (MCP)
+
+The HTTP MCP server is registered at `HONE_MCP_PATH` and requires an
+`Authorization: Bearer <HONE_MCP_TOKEN>` header. Requests without the configured token fail
+closed with `401`. For local Claude Code use, the same server is registered as a stdio MCP
+server under `HONE_MCP_LOCAL_NAME`, defaulting to `hone`.
+
+Hone exposes 19 read-only MCP tools: discovery tools for apps, record types, deploys, and
+ingest freshness; slow-path tools for requests, queries, jobs, and outgoing requests;
+`query_metric`, `regression_check`, `exceptions`, `top_users`, and volume/stat tools for
+cache events, queues, mail, notifications, scheduled tasks, commands, and logs by level.
+
+## Upgrading
+
+Upgrade the Hone server first, run its migrations, and then update the source app clients.
+Clients can run:
+
+```shell
+php artisan hone:update
+```
+
+The command derives `/capabilities` from `HONE_URL` (stripping a trailing `/ingest` when
+present), sends its `HONE_TOKEN` as a bearer header (the capabilities endpoint itself does not
+require it), and reports whether the client's envelope major is inside the server's supported
+range. The envelope is additive within a major. If a source app
+sends an envelope newer than the server understands, ingest returns a 4xx with an upgrade
+message instead of accepting the batch.
+
+## Privacy
+
+Hone is designed to be safe to feed to an LLM when source apps use Nightwatch's normal
+redaction configuration. Query bindings are not part of Hone's normalized query key, and Hone
+does not add a second capture path for them; source-app Nightwatch redaction happens before
+records are sent to Hone. MCP tools summarize by normalized keys such as route, SQL shape,
+exception class/location, log level, user id, and cache `store:type`, rather than exposing raw
+request bodies or arbitrary event payloads.
+
+---
+
 ## Out of scope (non-goals)
 
 - **No UI / dashboard.** The agent is the interface.

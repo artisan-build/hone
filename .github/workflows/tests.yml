@@ -61,8 +61,14 @@ jobs:
       - name: Generate Application Key
         run: php artisan key:generate
 
+      - name: Create Hone Server Test Database
+        run: createdb -h 127.0.0.1 -p 5432 -U root hone_server_test
+
       - name: Run PHPStan
         run: composer stan
 
       - name: Run Tests
         run: ./vendor/bin/pest
+
+      - name: Run Hone Server Package Tests
+        run: cd packages/hone-server && composer install --no-interaction --prefer-dist && composer lint:test && composer test
