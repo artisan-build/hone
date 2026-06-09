@@ -7,6 +7,7 @@ namespace ArtisanBuild\HoneServer\Tests;
 use ArtisanBuild\HoneServer\HoneServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Mcp\Server\McpServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
@@ -24,7 +25,10 @@ abstract class TestCase extends Orchestra
      */
     protected function getPackageProviders($app): array
     {
-        return [HoneServerServiceProvider::class];
+        return [
+            McpServiceProvider::class,
+            HoneServerServiceProvider::class,
+        ];
     }
 
     /**
@@ -40,6 +44,7 @@ abstract class TestCase extends Orchestra
             'database' => 'hone_server_test',
             'username' => 'root',
             'password' => '',
+            'timezone' => 'UTC',
         ]);
         $app['config']->set('database.connections.hone', [
             'driver' => 'pgsql',
@@ -51,6 +56,7 @@ abstract class TestCase extends Orchestra
             'charset' => 'utf8',
             'prefix' => '',
             'search_path' => 'public',
+            'timezone' => 'UTC',
         ]);
     }
 }

@@ -7,9 +7,12 @@ namespace ArtisanBuild\HoneServer;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
+use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
+use ArtisanBuild\HoneServer\Mcp\Middleware\AuthenticateHoneMcp;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Mcp\Facades\Mcp;
 
 final class HoneServerServiceProvider extends ServiceProvider
 {
@@ -27,6 +30,7 @@ final class HoneServerServiceProvider extends ServiceProvider
             'charset' => 'utf8',
             'prefix' => '',
             'search_path' => 'public',
+            'timezone' => 'UTC',
         ]);
     }
 
@@ -40,6 +44,13 @@ final class HoneServerServiceProvider extends ServiceProvider
 
         Route::prefix((string) config('hone-server.route_prefix', ''))
             ->group(__DIR__.'/../routes/hone-server.php');
+
+        $this->app->booted(function (): void {
+            Mcp::web((string) config('hone-server.mcp.path', '/mcp'), HoneMcpServer::class)
+                ->middleware([AuthenticateHoneMcp::class]);
+
+            Mcp::local((string) config('hone-server.mcp.local_name', 'hone'), HoneMcpServer::class);
+        });
 
         if ($this->app->runningInConsole()) {
             $this->commands([
