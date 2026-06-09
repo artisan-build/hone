@@ -18,6 +18,7 @@
         "php": "^8.3",
         "artisan-build/hone-contracts": "^1.0",
         "illuminate/contracts": "^13.0",
+        "illuminate/database": "^13.0",
         "illuminate/support": "^13.0",
         "laravel/mcp": "^0.7"
     },
@@ -33,6 +34,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "ArtisanBuild\\HoneServer\\Database\\Factories\\": "database/factories/",
             "ArtisanBuild\\HoneServer\\Tests\\": "tests/"
         }
     },
