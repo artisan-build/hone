@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer;
 
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
 final class HoneServerServiceProvider extends ServiceProvider
@@ -32,5 +33,8 @@ final class HoneServerServiceProvider extends ServiceProvider
         ], 'hone-server-config');
 
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+
+        Route::prefix((string) config('hone-server.route_prefix', ''))
+            ->group(__DIR__.'/../routes/hone-server.php');
     }
 }
