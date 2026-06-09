@@ -210,20 +210,38 @@ it('keeps aggregates created before pruning expired raw events', function (): vo
         ->and(Aggregate::query()->where('metric', 'count')->count())->toBe(1);
 });
 
-it('registers both commands and schedules rollup before prune', function (): void {
-    expect(Artisan::all())->toHaveKeys(['hone:rollup', 'hone:prune']);
+it('runs maintenance by rolling up before pruning expired raw events', function (): void {
+    Carbon::setTestNow('2026-06-09 12:00:00+00');
+    config()->set('hone-server.retention.raw_hours', 1);
+
+    RawEvent::factory()->create([
+        'app' => 'checkout',
+        'record_type' => 'query',
+        'normalized_key' => 'select-users-by-id',
+        'deploy' => 'abc123',
+        'occurred_at' => now()->subHours(2),
+        'payload' => ['duration_ms' => 10],
+    ]);
+
+    Artisan::call('hone:maintain');
+
+    expect(Aggregate::query()->where('metric', 'count')->count())->toBe(1)
+        ->and(RawEvent::query()->count())->toBe(0);
+});
+
+it('registers rollup prune and maintain commands while scheduling only maintain', function (): void {
+    expect(Artisan::all())->toHaveKeys(['hone:maintain', 'hone:rollup', 'hone:prune']);
 
     $commands = collect(app(Schedule::class)->events())
         ->pluck('command')
         ->filter()
         ->values();
 
-    $rollupIndex = $commands->search(fn (string $command): bool => str_contains($command, 'hone:rollup'));
-    $pruneIndex = $commands->search(fn (string $command): bool => str_contains($command, 'hone:prune'));
+    $maintainCommands = $commands->filter(fn (string $command): bool => str_contains($command, 'hone:maintain'));
 
-    expect($rollupIndex)->not->toBeFalse()
-        ->and($pruneIndex)->not->toBeFalse()
-        ->and($rollupIndex)->toBeLessThan($pruneIndex);
+    expect($maintainCommands)->toHaveCount(1)
+        ->and($commands->contains(fn (string $command): bool => str_contains($command, 'hone:rollup')))->toBeFalse()
+        ->and($commands->contains(fn (string $command): bool => str_contains($command, 'hone:prune')))->toBeFalse();
 });
 
 /**
