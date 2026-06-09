@@ -16,9 +16,9 @@ final class Normalizer
         $key = match ($recordType) {
             'request' => trim(self::string($record['method'] ?? '').' '.self::string($record['route'] ?? $record['uri'] ?? '')),
             'query' => self::string($record['sql'] ?? $recordType),
-            'job', 'command', 'scheduled_task' => self::string($record['name'] ?? $recordType),
+            'queued-job', 'command', 'scheduled-task' => self::string($record['name'] ?? $recordType),
             'exception' => trim(self::string($record['class'] ?? '').' '.self::string($record['file'] ?? '').(isset($record['line']) ? ':'.self::string($record['line']) : '')),
-            'outgoing_request' => trim(self::string($record['method'] ?? '').' '.self::string($record['host'] ?? $record['url'] ?? '')),
+            'outgoing-request' => trim(self::string($record['method'] ?? '').' '.self::string($record['host'] ?? $record['url'] ?? '')),
             default => $recordType,
         };
 

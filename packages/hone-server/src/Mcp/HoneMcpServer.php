@@ -7,7 +7,13 @@ namespace ArtisanBuild\HoneServer\Mcp;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\QueryMetricTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RecordTypesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\RegressionCheckTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowJobsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowOutgoingRequestsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowQueriesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowRequestsTool;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Attributes\Instructions;
 use Laravel\Mcp\Server\Attributes\Name;
@@ -27,5 +33,11 @@ final class HoneMcpServer extends Server
         RecordTypesTool::class,
         DeploysTool::class,
         IngestFreshnessTool::class,
+        SlowRequestsTool::class,
+        SlowQueriesTool::class,
+        SlowJobsTool::class,
+        SlowOutgoingRequestsTool::class,
+        QueryMetricTool::class,
+        RegressionCheckTool::class,
     ];
 }
