@@ -38,13 +38,22 @@ it('accepts a valid envelope and dispatches the telemetry batch without writing 
         ->postJson('/ingest', $envelope->toArray())
         ->assertStatus(202);
 
-    Bus::assertDispatched(ProcessTelemetryBatch::class, function (ProcessTelemetryBatch $job): bool {
+    Bus::assertDispatchedAfterResponse(ProcessTelemetryBatch::class, function (ProcessTelemetryBatch $job): bool {
         return $job->app === 'checkout'
             && $job->deploy === 'abc123'
             && $job->sentAt === '2026-06-09T12:00:00+00:00'
             && $job->records === [['t' => 'query', 'sql' => 'select * from users']];
     });
     expect(RawEvent::query()->count())->toBe(0);
+});
+
+it('rejects missing bearer tokens without dispatching', function (): void {
+    Bus::fake();
+
+    $this->postJson('/ingest', Envelope::make('checkout', null, '2026-06-09T12:00:00+00:00', [])->toArray())
+        ->assertStatus(401);
+
+    Bus::assertNotDispatched(ProcessTelemetryBatch::class);
 });
 
 it('rejects unknown bearer tokens without dispatching', function (): void {
@@ -77,6 +86,18 @@ it('rejects malformed envelope bodies without dispatching', function (): void {
 
     $this->withHeader('Authorization', 'Bearer secret-token')
         ->postJson('/ingest', ['nope' => true])
+        ->assertStatus(422);
+
+    Bus::assertNotDispatched(ProcessTelemetryBatch::class);
+});
+
+it('rejects non-decodable json without dispatching', function (): void {
+    Bus::fake();
+
+    $this->call('POST', '/ingest', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_AUTHORIZATION' => 'Bearer secret-token',
+    ], '{not json')
         ->assertStatus(422);
 
     Bus::assertNotDispatched(ProcessTelemetryBatch::class);
@@ -115,4 +136,30 @@ it('processes telemetry batches into raw events', function (): void {
         ->and($events[1]->payload)->toEqual(['t' => 'request', 'method' => 'GET', 'route' => '/', 'duration_ms' => 34, 'ts' => 1781006402000])
         ->and($events[0]->occurred_at)->not->toBeNull()
         ->and($events[1]->occurred_at)->not->toBeNull();
+});
+
+it('persists after response on sync queues using the token app instead of envelope app', function (): void {
+    config()->set('queue.default', 'sync');
+    config()->set('hone-server.queue', 'sync');
+
+    $envelope = Envelope::make(
+        app: 'forged-app',
+        deploy: 'abc123',
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [
+            ['t' => 'query', 'sql' => 'select 1'],
+            ['t' => 'request', 'method' => 'GET', 'route' => '/'],
+        ],
+    );
+
+    $this->withHeader('Authorization', 'Bearer secret-token')
+        ->postJson('/ingest', $envelope->toArray())
+        ->assertStatus(202);
+
+    $events = RawEvent::query()->orderBy('id')->get();
+
+    expect($events)->toHaveCount(2)
+        ->and($events->pluck('app')->unique()->values()->all())->toBe(['checkout'])
+        ->and($events->pluck('app')->all())->not->toContain('forged-app')
+        ->and($events->pluck('record_type')->all())->toBe(['query', 'request']);
 });

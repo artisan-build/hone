@@ -10,7 +10,6 @@ use ArtisanBuild\HoneServer\AppRegistry;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Bus;
 use JsonException;
 
 final class IngestController
@@ -65,7 +64,7 @@ final class IngestController
             $job->connection = $queueConnection;
         }
 
-        Bus::dispatch($job);
+        dispatch($job)->afterResponse();
 
         return response()->json(['message' => 'Accepted.'], 202);
     }

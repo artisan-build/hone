@@ -25,6 +25,8 @@ return [
         ];
     }, $tokens))),
     'route_prefix' => env('HONE_ROUTE_PREFIX', ''),
+
+    // Use an async connection such as redis for throughput; afterResponse keeps ingest unblocked even on sync.
     'queue' => env('HONE_QUEUE_CONNECTION'),
     'database' => [
         'connection' => 'hone',

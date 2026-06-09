@@ -8,6 +8,7 @@ use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final class ProcessTelemetryBatch implements ShouldQueue
@@ -43,7 +44,13 @@ final class ProcessTelemetryBatch implements ShouldQueue
                     'normalized_key' => Normalizer::keyFor($recordType, $record),
                     'payload' => $record,
                 ]);
-            } catch (Throwable) {
+            } catch (Throwable $e) {
+                Log::warning('Failed to persist Hone telemetry record.', [
+                    'app' => $this->app,
+                    'record_type' => $recordType,
+                    'exception' => $e->getMessage(),
+                ]);
+
                 continue;
             }
         }
