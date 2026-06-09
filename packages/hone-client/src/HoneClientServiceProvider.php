@@ -13,6 +13,8 @@ use Psr\Log\LoggerInterface;
 
 final class HoneClientServiceProvider extends ServiceProvider
 {
+    private static bool $insecureUrlWarningLogged = false;
+
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/hone.php', 'hone');
@@ -56,8 +58,21 @@ final class HoneClientServiceProvider extends ServiceProvider
                 return;
             }
 
+            $this->warnIfInsecureUrl((string) $url);
+
             $core = $this->app->make(Core::class);
             $core->ingest = $this->app->make(HoneIngest::class);
         });
+    }
+
+    private function warnIfInsecureUrl(string $url): void
+    {
+        if (self::$insecureUrlWarningLogged || parse_url($url, PHP_URL_SCHEME) === 'https') {
+            return;
+        }
+
+        self::$insecureUrlWarningLogged = true;
+
+        Log::warning('Hone URL is not HTTPS; HONE_TOKEN will be sent over plaintext transport.');
     }
 }

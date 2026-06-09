@@ -13,6 +13,8 @@ use Throwable;
 
 final class HoneIngest implements Ingest
 {
+    private const float MINIMUM_TIMEOUT = 0.05;
+
     /**
      * @var list<array<string, mixed>>
      */
@@ -20,17 +22,24 @@ final class HoneIngest implements Ingest
 
     private bool $shouldDigestWhenBufferIsFull = true;
 
+    private readonly float $connectTimeout;
+
+    private readonly float $timeout;
+
     public function __construct(
         private readonly string $url,
         private readonly string $token,
         private readonly string $app,
         private readonly ?string $deploy,
         private readonly int $bufferLimit,
-        private readonly float $connectTimeout,
-        private readonly float $timeout,
+        float $connectTimeout,
+        float $timeout,
         private readonly Factory $http,
         private readonly LoggerInterface $logger,
-    ) {}
+    ) {
+        $this->connectTimeout = max(self::MINIMUM_TIMEOUT, $connectTimeout);
+        $this->timeout = max(self::MINIMUM_TIMEOUT, $timeout);
+    }
 
     /**
      * @param  array<string, mixed>  $record
@@ -39,6 +48,7 @@ final class HoneIngest implements Ingest
     {
         $this->buffer[] = $record;
 
+        // Hone intentionally drops on overflow instead of posting mid-request.
         while (count($this->buffer) > max(0, $this->bufferLimit)) {
             array_shift($this->buffer);
         }
@@ -49,8 +59,7 @@ final class HoneIngest implements Ingest
      */
     public function writeNow(array $record): void
     {
-        $this->write($record);
-        $this->send();
+        $this->send([$record], clearBuffer: false);
     }
 
     public function ping(): void
@@ -65,26 +74,28 @@ final class HoneIngest implements Ingest
 
     public function shouldDigestWhenBufferIsFull(bool $bool = true): void
     {
+        // Stored for contract compatibility; Hone never digests mid-request on full buffers.
         $this->shouldDigestWhenBufferIsFull = $bool;
     }
 
     public function digest(): void
     {
-        $this->send();
+        $this->send($this->buffer, clearBuffer: true);
     }
 
     public function flush(): void
     {
-        $this->send();
+        $this->buffer = [];
     }
 
-    private function send(): void
+    /**
+     * @param  list<array<string, mixed>>  $records
+     */
+    private function send(array $records, bool $clearBuffer): void
     {
-        if ($this->buffer === []) {
+        if ($records === []) {
             return;
         }
-
-        $records = $this->buffer;
 
         try {
             $envelope = Envelope::make(
@@ -101,11 +112,17 @@ final class HoneIngest implements Ingest
                 ->post($this->url, $envelope)
                 ->throw();
         } catch (Throwable $e) {
-            $this->logger->debug('Hone ingest failed; dropping buffered records.', [
-                'exception' => $e,
-            ]);
+            try {
+                $this->logger->debug('Hone ingest failed; dropping buffered records.', [
+                    'exception' => $e,
+                ]);
+            } catch (Throwable) {
+                // Fail open even if the host application's logger is unavailable.
+            }
         } finally {
-            $this->buffer = [];
+            if ($clearBuffer) {
+                $this->buffer = [];
+            }
         }
     }
 }
