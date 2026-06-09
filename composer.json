@@ -1,23 +1,21 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "artisan-build/laravel-nodeless",
+    "name": "artisan-build/hone-app",
     "type": "project",
-    "description": "A Laravel Livewire starter kit with no Node, npm, Vite, or frontend build step.",
+    "description": "The slim headless Hone telemetry server application.",
     "keywords": [
+        "hone",
+        "telemetry",
         "laravel",
-        "framework",
-        "livewire",
-        "nodeless"
+        "mcp"
     ],
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "artisan-build/hone-server": "^1.0",
         "laravel/chisel": "^0.1.0",
-        "laravel/fortify": "^1.37.2",
         "laravel/framework": "^13.7",
-        "laravel/tinker": "^3.0",
-        "livewire/flux": "^2.13.1",
-        "livewire/livewire": "^4.1"
+        "laravel/tinker": "^3.0"
     },
     "require-dev": {
         "barryvdh/laravel-ide-helper": "^3.6",
@@ -133,7 +131,6 @@
         ],
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi",
-            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --graceful --ansi"
         ],
         "pre-package-uninstall": [

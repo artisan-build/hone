@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer;
 
+use ArtisanBuild\HoneServer\Commands\IssueTokenCommand;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
@@ -54,6 +55,7 @@ final class HoneServerServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
+                IssueTokenCommand::class,
                 MaintainCommand::class,
                 RollupCommand::class,
                 PruneCommand::class,
