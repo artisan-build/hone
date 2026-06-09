@@ -22,7 +22,7 @@
         "laravel/mcp": "^0.7"
     },
     "require-dev": {
-        "orchestra/testbench": "^10.0",
+        "orchestra/testbench": "^11.0",
         "pestphp/pest": "^4.0",
         "laravel/pint": "^1.27"
     },
