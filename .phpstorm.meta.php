@@ -749,25 +749,6 @@ namespace PHPSTORM_META {
             'view.finder' => \Illuminate\View\FileViewFinder::class,
         ]));
 
-    override(\auth()->user(), map([
-        '' => \App\Models\User::class,
-    ]));
-    override(\Illuminate\Contracts\Auth\Guard::user(), map([
-        '' => \App\Models\User::class,
-    ]));
-    override(\Illuminate\Support\Facades\Auth::user(), map([
-        '' => \App\Models\User::class,
-    ]));
-    override(\request()->user(), map([
-        '' => \App\Models\User::class,
-    ]));
-    override(\Illuminate\Http\Request::user(), map([
-        '' => \App\Models\User::class,
-    ]));
-    override(\Illuminate\Support\Facades\Request::user(), map([
-        '' => \App\Models\User::class,
-    ]));
-
     override(\config(), map([
             'hashing.driver' => 'string',
             'hashing.bcrypt.rounds' => 'string',
