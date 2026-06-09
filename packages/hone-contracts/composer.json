@@ -1,0 +1,32 @@
+{
+    "name": "artisan-build/hone-contracts",
+    "description": "The versioned wire envelope shared between hone-client and hone-server. The single place Hone's wire compatibility lives.",
+    "keywords": ["hone", "telemetry", "nightwatch", "laravel", "contracts"],
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": "^8.3"
+    },
+    "require-dev": {
+        "pestphp/pest": "^4.0",
+        "laravel/pint": "^1.27"
+    },
+    "autoload": {
+        "psr-4": {
+            "ArtisanBuild\\HoneContracts\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ArtisanBuild\\HoneContracts\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
