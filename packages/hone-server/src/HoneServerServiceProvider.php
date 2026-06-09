@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer;
 
+use ArtisanBuild\HoneServer\Commands\PruneCommand;
+use ArtisanBuild\HoneServer\Commands\RollupCommand;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
@@ -36,5 +39,19 @@ final class HoneServerServiceProvider extends ServiceProvider
 
         Route::prefix((string) config('hone-server.route_prefix', ''))
             ->group(__DIR__.'/../routes/hone-server.php');
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                RollupCommand::class,
+                PruneCommand::class,
+            ]);
+
+            $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
+                $schedule->command('hone:rollup')->hourly();
+
+                // Prune must remain after rollup so raw events are aggregated before retention deletes them.
+                $schedule->command('hone:prune')->hourly();
+            });
+        }
     }
 }
