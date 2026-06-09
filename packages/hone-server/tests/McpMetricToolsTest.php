@@ -152,3 +152,14 @@ it('registers and serves all metric tools', function (string $toolClass): void {
     QueryMetricTool::class,
     RegressionCheckTool::class,
 ]);
+
+it('keeps slow tool record type mappings aligned with stored Nightwatch values', function (string $toolClass, string $recordType): void {
+    HoneMcpServer::tool($toolClass)
+        ->assertOk()
+        ->assertSee($recordType);
+})->with([
+    'requests' => [SlowRequestsTool::class, 'request'],
+    'queries' => [SlowQueriesTool::class, 'query'],
+    'jobs' => [SlowJobsTool::class, 'queued-job'],
+    'outgoing requests' => [SlowOutgoingRequestsTool::class, 'outgoing-request'],
+]);

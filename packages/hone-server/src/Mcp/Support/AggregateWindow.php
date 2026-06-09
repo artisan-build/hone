@@ -92,6 +92,7 @@ final class AggregateWindow
             ->selectRaw("max(value) filter (where metric = 'p95') as p95")
             ->selectRaw("max(value) filter (where metric = 'p99') as p99")
             ->where('record_type', $recordType)
+            // Inclusive: days=N covers bucket_date from today-N through today, so today's partial bucket is included.
             ->when($days !== null, fn (Builder $query) => $query->whereDate('bucket_date', '>=', Carbon::now('UTC')->subDays($days)->toDateString()))
             ->when($app !== null, fn (Builder $query) => $query->where('app', $app))
             ->when($deploy !== null, fn (Builder $query) => $query->where('deploy', $deploy));
