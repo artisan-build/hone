@@ -7,6 +7,7 @@ use ArtisanBuild\HoneClient\HoneIngest;
 use ArtisanBuild\HoneContracts\Envelope;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Laravel\Nightwatch\Contracts\Ingest;
@@ -17,6 +18,33 @@ use Psr\Log\LoggerInterface;
 function runHoneClientBootedRebind(): void
 {
     (new HoneClientServiceProvider(app()))->boot();
+}
+
+function useHoneClientTempApp(string $env = '', ?string $composer = null): string
+{
+    $path = sys_get_temp_dir().'/hone-client-test-'.bin2hex(random_bytes(6));
+
+    mkdir($path, 0755, true);
+    file_put_contents($path.'/.env', $env);
+    file_put_contents($path.'/composer.json', $composer ?? json_encode(['require' => []], JSON_THROW_ON_ERROR));
+
+    app()->setBasePath($path);
+    app()->useEnvironmentPath($path);
+    app()->loadEnvironmentFrom('.env');
+    app()->useStoragePath($path.'/storage');
+
+    return $path;
+}
+
+/**
+ * @return list<string>
+ */
+function honeClientLines(string $contents, string $key): array
+{
+    return array_values(array_filter(
+        preg_split('/\R/', $contents) ?: [],
+        fn (string $line): bool => str_starts_with($line, $key.'=')
+    ));
 }
 
 function bindFakeNightwatchCore(mixed $ingest = null): object
@@ -291,4 +319,162 @@ it('clamps zero and negative timeouts to a safe positive floor', function (): vo
 
 it('implements the nightwatch ingest contract', function (): void {
     expect(honeIngest())->toBeInstanceOf(Ingest::class);
+});
+
+it('installs hone env values without duplicating them', function (): void {
+    $path = useHoneClientTempApp();
+
+    $this->artisan('hone:install', [
+        '--url' => 'https://hone.test/ingest',
+        '--token' => 'secret-token',
+        '--no-interaction' => true,
+    ])->assertExitCode(0);
+
+    $this->artisan('hone:install', [
+        '--url' => 'https://hone.test/ingest',
+        '--token' => 'secret-token',
+        '--no-interaction' => true,
+    ])->assertExitCode(0);
+
+    $contents = (string) file_get_contents($path.'/.env');
+
+    expect(honeClientLines($contents, 'HONE_URL'))->toHaveCount(1)
+        ->and(honeClientLines($contents, 'HONE_TOKEN'))->toHaveCount(1)
+        ->and($contents)->toContain('HONE_URL=https://hone.test/ingest')
+        ->and($contents)->toContain('HONE_TOKEN=secret-token');
+});
+
+it('adds nightwatch enabled when installing', function (): void {
+    $path = useHoneClientTempApp();
+
+    $this->artisan('hone:install', [
+        '--url' => 'https://hone.test/ingest',
+        '--token' => 'secret-token',
+        '--no-interaction' => true,
+    ])->assertExitCode(0);
+
+    expect((string) file_get_contents($path.'/.env'))->toContain('NIGHTWATCH_ENABLED=true');
+});
+
+it('pins wildcard hone client composer constraints to a caret', function (): void {
+    $path = useHoneClientTempApp(composer: json_encode([
+        'require' => ['artisan-build/hone-client' => '*'],
+    ], JSON_THROW_ON_ERROR));
+
+    $this->artisan('hone:install', [
+        '--url' => 'https://hone.test/ingest',
+        '--token' => 'secret-token',
+        '--no-interaction' => true,
+    ])->assertExitCode(0);
+
+    $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+
+    expect($composer['require']['artisan-build/hone-client'])->toBe('^1');
+});
+
+it('leaves existing caret hone client composer constraints alone', function (): void {
+    $path = useHoneClientTempApp(composer: json_encode([
+        'require' => ['artisan-build/hone-client' => '^1'],
+    ], JSON_THROW_ON_ERROR));
+
+    $this->artisan('hone:install', [
+        '--url' => 'https://hone.test/ingest',
+        '--token' => 'secret-token',
+        '--no-interaction' => true,
+    ])->assertExitCode(0);
+
+    $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+
+    expect($composer['require']['artisan-build/hone-client'])->toBe('^1');
+});
+
+it('checks hone server capabilities at the derived url with bearer token', function (): void {
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response([
+            'envelope' => ['min_major' => 1, 'max_major' => 1, 'supported_majors' => [1]],
+        ]),
+    ]);
+
+    config()->set('hone.url', 'https://hone.test/ingest');
+    config()->set('hone.token', 'secret-token');
+
+    $this->artisan('hone:update')
+        ->expectsOutput("Your Hone server understands envelope v1. You're good.")
+        ->assertExitCode(0);
+
+    Http::assertSent(function (Request $request): bool {
+        return $request->url() === 'https://hone.test/capabilities'
+            && $request->hasHeader('Authorization', 'Bearer secret-token');
+    });
+});
+
+it('fails hone update when apps are ahead of the hone server', function (): void {
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response([
+            'envelope' => ['min_major' => 0, 'max_major' => 0, 'supported_majors' => [0]],
+        ]),
+    ]);
+
+    config()->set('hone.url', 'https://hone.test');
+    config()->set('hone.token', 'secret-token');
+
+    $this->artisan('hone:update')
+        ->expectsOutputToContain('Update your Hone app first')
+        ->assertExitCode(1);
+});
+
+it('fails hone update without a configured url and sends nothing', function (): void {
+    Http::fake();
+
+    config()->set('hone.url', null);
+
+    $this->artisan('hone:update')
+        ->expectsOutputToContain('HONE_URL is not configured')
+        ->assertExitCode(1);
+
+    Http::assertNothingSent();
+});
+
+it('nudges once when the stored contracts major changes', function (): void {
+    $path = useHoneClientTempApp();
+    $marker = $path.'/storage/framework/hone/contracts-major';
+
+    File::ensureDirectoryExists(dirname($marker));
+    File::put($marker, '0');
+    Log::spy();
+
+    runHoneClientBootedRebind();
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->with('Hone contracts major changed; run `php artisan hone:update` to verify server compatibility.');
+
+    expect((string) file_get_contents($marker))->toBe((string) Envelope::VERSION);
+});
+
+it('does not nudge when the stored contracts major matches', function (): void {
+    $path = useHoneClientTempApp();
+    $marker = $path.'/storage/framework/hone/contracts-major';
+
+    File::ensureDirectoryExists(dirname($marker));
+    File::put($marker, (string) Envelope::VERSION);
+    Log::spy();
+
+    runHoneClientBootedRebind();
+
+    Log::shouldNotHaveReceived('warning');
+});
+
+it('persists contracts major without nudging on first run', function (): void {
+    $path = useHoneClientTempApp();
+    $marker = $path.'/storage/framework/hone/contracts-major';
+
+    Log::spy();
+
+    runHoneClientBootedRebind();
+
+    Log::shouldNotHaveReceived('warning');
+
+    expect($marker)->toBeFile()
+        ->and((string) file_get_contents($marker))->toBe((string) Envelope::VERSION);
 });

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneClient;
 
+use ArtisanBuild\HoneClient\Commands\InstallCommand;
+use ArtisanBuild\HoneClient\Commands\UpdateCommand;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Log;
@@ -39,6 +41,15 @@ final class HoneClientServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../config/hone.php' => config_path('hone.php'),
         ], 'hone-config');
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                InstallCommand::class,
+                UpdateCommand::class,
+            ]);
+        }
+
+        $this->app->make(ContractsVersionNudge::class)->check();
 
         $this->app->booted(function (): void {
             $url = config('hone.url');
