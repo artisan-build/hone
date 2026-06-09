@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 afterEach(function (): void {
+    DB::connection('hone')->statement("SET TIME ZONE 'UTC'");
     Carbon::setTestNow();
 });
 
@@ -71,13 +72,75 @@ it('keeps rollups idempotent for unknown deploy groups', function (): void {
         ->and(Aggregate::query()->orderBy('metric')->pluck('value', 'metric')->all())->toBe($firstRunValues);
 });
 
+it('ignores non-numeric duration payloads without aborting the rollup', function (): void {
+    foreach ([['duration' => 'fast'], ['duration_ms' => 50]] as $payload) {
+        RawEvent::factory()->create([
+            'app' => 'checkout',
+            'record_type' => 'query',
+            'normalized_key' => 'select-users-by-id',
+            'deploy' => 'abc123',
+            'occurred_at' => Carbon::parse('2026-06-09 12:00:00+00'),
+            'payload' => $payload,
+        ]);
+    }
+
+    Artisan::call('hone:rollup');
+
+    $aggregates = Aggregate::query()->pluck('value', 'metric');
+
+    expect($aggregates)->toHaveCount(5)
+        ->and($aggregates['count'])->toBe(2.0)
+        ->and($aggregates['avg'])->toBe(50.0)
+        ->and($aggregates['max'])->toBe(50.0)
+        ->and($aggregates['p95'])->toBe(50.0)
+        ->and($aggregates['p99'])->toBe(50.0)
+        ->and(Aggregate::query()->pluck('sample_count')->unique()->all())->toBe([2]);
+});
+
+it('does not overwrite complete aggregates with lower sample partial rerollups', function (): void {
+    $eventAttributes = [
+        'app' => 'checkout',
+        'record_type' => 'query',
+        'normalized_key' => 'select-users-by-id',
+        'deploy' => 'abc123',
+        'occurred_at' => Carbon::parse('2026-06-09 12:00:00+00'),
+    ];
+
+    foreach ([10, 20, 30, 40, 50] as $duration) {
+        RawEvent::factory()->create($eventAttributes + ['payload' => ['duration_ms' => $duration]]);
+    }
+
+    Artisan::call('hone:rollup');
+
+    expect(Aggregate::query()->where('metric', 'count')->sole()->value)->toBe(5.0);
+
+    $deletedIds = RawEvent::query()->orderBy('id')->limit(2)->pluck('id');
+    RawEvent::query()->whereIn('id', $deletedIds)->delete();
+
+    Artisan::call('hone:rollup');
+
+    expect(Aggregate::query()->where('metric', 'count')->sole()->value)->toBe(5.0)
+        ->and(Aggregate::query()->where('metric', 'count')->sole()->sample_count)->toBe(5);
+
+    foreach ([60, 70, 80] as $duration) {
+        RawEvent::factory()->create($eventAttributes + ['payload' => ['duration_ms' => $duration]]);
+    }
+
+    Artisan::call('hone:rollup');
+
+    expect(Aggregate::query()->where('metric', 'count')->sole()->value)->toBe(6.0)
+        ->and(Aggregate::query()->where('metric', 'count')->sole()->sample_count)->toBe(6);
+});
+
 it('separates raw events into calendar day buckets', function (): void {
+    DB::connection('hone')->statement("SET TIME ZONE 'Asia/Tokyo'");
+
     RawEvent::factory()->create([
         'app' => 'checkout',
         'record_type' => 'query',
         'normalized_key' => 'select-users-by-id',
         'deploy' => 'abc123',
-        'occurred_at' => Carbon::parse('2026-06-08 23:59:00+00'),
+        'occurred_at' => Carbon::parse('2026-06-08 23:30:00+00'),
         'payload' => ['duration_ms' => 10],
     ]);
     RawEvent::factory()->create([
@@ -85,7 +148,7 @@ it('separates raw events into calendar day buckets', function (): void {
         'record_type' => 'query',
         'normalized_key' => 'select-users-by-id',
         'deploy' => 'abc123',
-        'occurred_at' => Carbon::parse('2026-06-09 00:01:00+00'),
+        'occurred_at' => Carbon::parse('2026-06-09 12:01:00+00'),
         'payload' => ['duration_ms' => 20],
     ]);
 

@@ -22,8 +22,11 @@ final class RollupCommand extends Command
                     record_type,
                     normalized_key,
                     deploy,
-                    date(occurred_at) AS bucket_date,
-                    COALESCE((payload->>'duration')::double precision, (payload->>'duration_ms')::double precision) AS numeric_value
+                    date(occurred_at AT TIME ZONE 'UTC') AS bucket_date,
+                    COALESCE(
+                        CASE WHEN jsonb_typeof(payload->'duration') = 'number' THEN (payload->>'duration')::double precision END,
+                        CASE WHEN jsonb_typeof(payload->'duration_ms') = 'number' THEN (payload->>'duration_ms')::double precision END
+                    ) AS numeric_value
                 FROM raw_events
             )
             SELECT
@@ -80,11 +83,7 @@ final class RollupCommand extends Command
         }
 
         if ($aggregateRows !== []) {
-            DB::connection('hone')->table('aggregates')->upsert(
-                values: $aggregateRows,
-                uniqueBy: ['app', 'record_type', 'normalized_key', 'deploy', 'bucket_date', 'metric'],
-                update: ['value', 'sample_count', 'updated_at'],
-            );
+            $this->insertAggregateRows($aggregateRows);
         }
 
         $this->info(sprintf(
@@ -94,5 +93,47 @@ final class RollupCommand extends Command
         ));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @param  list<array{app: string, record_type: string, normalized_key: string, deploy: ?string, bucket_date: string, sample_count: int, created_at: mixed, updated_at: mixed, metric: string, value: float}>  $aggregateRows
+     */
+    private function insertAggregateRows(array $aggregateRows): void
+    {
+        $bindings = [];
+        $placeholders = [];
+
+        foreach ($aggregateRows as $row) {
+            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            array_push(
+                $bindings,
+                $row['app'],
+                $row['record_type'],
+                $row['normalized_key'],
+                $row['deploy'],
+                $row['bucket_date'],
+                $row['metric'],
+                $row['value'],
+                $row['sample_count'],
+                $row['created_at'],
+                $row['updated_at'],
+            );
+        }
+
+        DB::connection('hone')->statement(<<<SQL
+            INSERT INTO aggregates (app, record_type, normalized_key, deploy, bucket_date, metric, value, sample_count, created_at, updated_at)
+            VALUES {$this->valuesClause($placeholders)}
+            ON CONFLICT (app, record_type, normalized_key, deploy, bucket_date, metric)
+            DO UPDATE SET value = EXCLUDED.value, sample_count = EXCLUDED.sample_count, updated_at = EXCLUDED.updated_at
+            WHERE EXCLUDED.sample_count >= aggregates.sample_count
+        SQL, $bindings);
+    }
+
+    /**
+     * @param  list<string>  $placeholders
+     */
+    private function valuesClause(array $placeholders): string
+    {
+        return implode(', ', $placeholders);
     }
 }
