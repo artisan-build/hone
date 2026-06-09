@@ -24,13 +24,13 @@ final class ContractsVersionNudge
             $current = (string) Envelope::VERSION;
             $previous = $this->readPrevious($path);
 
-            if ($previous !== null && $previous !== $current) {
-                $this->logger->warning('Hone contracts major changed; run `php artisan hone:update` to verify server compatibility.');
-            }
-
             if ($previous !== $current) {
                 $this->files->ensureDirectoryExists(dirname($path));
                 $this->files->put($path, $current);
+
+                if ($previous !== null) {
+                    $this->logger->warning('Hone contracts major changed; run `php artisan hone:update` to verify server compatibility.');
+                }
             }
         } catch (Throwable) {
             return;

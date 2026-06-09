@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use JsonException;
 
 use function Laravel\Prompts\confirm;
+use function Laravel\Prompts\password;
 use function Laravel\Prompts\text;
 
 final class InstallCommand extends Command
@@ -29,7 +30,7 @@ final class InstallCommand extends Command
     public function handle(): int
     {
         $url = $this->stringOption('url') ?: text('Hone ingest URL', required: true);
-        $token = $this->stringOption('token') ?: text('Hone token', required: true);
+        $token = $this->stringOption('token') ?: password('Hone token', required: true);
 
         $this->writeEnvironment($url, $token);
         $this->pinComposerConstraint();
@@ -97,7 +98,7 @@ final class InstallCommand extends Command
 
         $current = $require['artisan-build/hone-client'] ?? null;
 
-        if (is_string($current) && str_starts_with($current, '^')) {
+        if (is_string($current) && $this->isCleanCaretConstraint($current)) {
             return;
         }
 
@@ -169,6 +170,16 @@ final class InstallCommand extends Command
         $value = $this->option($name);
 
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function isCleanCaretConstraint(string $constraint): bool
+    {
+        return preg_match('/^\^\d/', $constraint) === 1
+            && ! str_contains($constraint, '*')
+            && ! str_contains(strtolower($constraint), 'dev')
+            && ! str_contains($constraint, '@')
+            && ! str_contains($constraint, '||')
+            && ! str_contains($constraint, ' ');
     }
 
     private function installedClientMajor(): int

@@ -328,7 +328,8 @@ it('installs hone env values without duplicating them', function (): void {
         '--url' => 'https://hone.test/ingest',
         '--token' => 'secret-token',
         '--no-interaction' => true,
-    ])->assertExitCode(0);
+    ])->doesntExpectOutputToContain('secret-token')
+        ->assertExitCode(0);
 
     $this->artisan('hone:install', [
         '--url' => 'https://hone.test/ingest',
@@ -359,6 +360,22 @@ it('adds nightwatch enabled when installing', function (): void {
 it('pins wildcard hone client composer constraints to a caret', function (): void {
     $path = useHoneClientTempApp(composer: json_encode([
         'require' => ['artisan-build/hone-client' => '*'],
+    ], JSON_THROW_ON_ERROR));
+
+    $this->artisan('hone:install', [
+        '--url' => 'https://hone.test/ingest',
+        '--token' => 'secret-token',
+        '--no-interaction' => true,
+    ])->assertExitCode(0);
+
+    $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+
+    expect($composer['require']['artisan-build/hone-client'])->toBe('^1');
+});
+
+it('rewrites mixed hone client composer constraints to a caret', function (): void {
+    $path = useHoneClientTempApp(composer: json_encode([
+        'require' => ['artisan-build/hone-client' => '^1 || dev-main'],
     ], JSON_THROW_ON_ERROR));
 
     $this->artisan('hone:install', [
@@ -433,6 +450,32 @@ it('fails hone update without a configured url and sends nothing', function (): 
         ->assertExitCode(1);
 
     Http::assertNothingSent();
+});
+
+it('fails hone update when the capabilities response is not successful', function (): void {
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response(['error' => 'server down'], 503),
+    ]);
+
+    config()->set('hone.url', 'https://hone.test');
+    config()->set('hone.token', 'secret-token');
+
+    $this->artisan('hone:update')
+        ->expectsOutputToContain('Could not fetch Hone server capabilities')
+        ->assertExitCode(1);
+});
+
+it('fails hone update when capabilities json is invalid', function (): void {
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response(['missing' => 'envelope']),
+    ]);
+
+    config()->set('hone.url', 'https://hone.test');
+    config()->set('hone.token', 'secret-token');
+
+    $this->artisan('hone:update')
+        ->expectsOutputToContain('invalid capabilities JSON')
+        ->assertExitCode(1);
 });
 
 it('nudges once when the stored contracts major changes', function (): void {
