@@ -6,7 +6,7 @@ use ArtisanBuild\HoneContracts\Envelope;
 use ArtisanBuild\HoneServer\AppRegistry;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Models\RawEvent;
-use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function (): void {
     config()->set('hone-server.apps', [
@@ -23,7 +23,7 @@ it('resolves bearer tokens to registered app ids', function (): void {
 });
 
 it('accepts a valid envelope and dispatches the telemetry batch without writing synchronously', function (): void {
-    Bus::fake();
+    Queue::fake();
 
     $envelope = Envelope::make(
         app: 'forged-app',
@@ -38,7 +38,7 @@ it('accepts a valid envelope and dispatches the telemetry batch without writing 
         ->postJson('/ingest', $envelope->toArray())
         ->assertStatus(202);
 
-    Bus::assertDispatchedAfterResponse(ProcessTelemetryBatch::class, function (ProcessTelemetryBatch $job): bool {
+    Queue::assertPushed(ProcessTelemetryBatch::class, function (ProcessTelemetryBatch $job): bool {
         return $job->app === 'checkout'
             && $job->deploy === 'abc123'
             && $job->sentAt === '2026-06-09T12:00:00+00:00'
@@ -48,26 +48,26 @@ it('accepts a valid envelope and dispatches the telemetry batch without writing 
 });
 
 it('rejects missing bearer tokens without dispatching', function (): void {
-    Bus::fake();
+    Queue::fake();
 
     $this->postJson('/ingest', Envelope::make('checkout', null, '2026-06-09T12:00:00+00:00', [])->toArray())
         ->assertStatus(401);
 
-    Bus::assertNotDispatched(ProcessTelemetryBatch::class);
+    Queue::assertNothingPushed();
 });
 
 it('rejects unknown bearer tokens without dispatching', function (): void {
-    Bus::fake();
+    Queue::fake();
 
     $this->withHeader('Authorization', 'Bearer wrong-token')
         ->postJson('/ingest', Envelope::make('checkout', null, '2026-06-09T12:00:00+00:00', [])->toArray())
         ->assertStatus(401);
 
-    Bus::assertNotDispatched(ProcessTelemetryBatch::class);
+    Queue::assertNothingPushed();
 });
 
 it('rejects newer envelope versions with an upgrade message without dispatching', function (): void {
-    Bus::fake();
+    Queue::fake();
 
     $this->withHeader('Authorization', 'Bearer secret-token')
         ->postJson('/ingest', [
@@ -78,21 +78,21 @@ it('rejects newer envelope versions with an upgrade message without dispatching'
         ->assertStatus(422)
         ->assertSee('Upgrade your Hone app');
 
-    Bus::assertNotDispatched(ProcessTelemetryBatch::class);
+    Queue::assertNothingPushed();
 });
 
 it('rejects malformed envelope bodies without dispatching', function (): void {
-    Bus::fake();
+    Queue::fake();
 
     $this->withHeader('Authorization', 'Bearer secret-token')
         ->postJson('/ingest', ['nope' => true])
         ->assertStatus(422);
 
-    Bus::assertNotDispatched(ProcessTelemetryBatch::class);
+    Queue::assertNothingPushed();
 });
 
 it('rejects non-decodable json without dispatching', function (): void {
-    Bus::fake();
+    Queue::fake();
 
     $this->call('POST', '/ingest', [], [], [], [
         'CONTENT_TYPE' => 'application/json',
@@ -100,7 +100,7 @@ it('rejects non-decodable json without dispatching', function (): void {
     ], '{not json')
         ->assertStatus(422);
 
-    Bus::assertNotDispatched(ProcessTelemetryBatch::class);
+    Queue::assertNothingPushed();
 });
 
 it('reports supported envelope capabilities without authentication', function (): void {
