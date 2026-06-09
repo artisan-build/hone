@@ -163,3 +163,29 @@ it('keeps slow tool record type mappings aligned with stored Nightwatch values',
     'jobs' => [SlowJobsTool::class, 'queued-job'],
     'outgoing requests' => [SlowOutgoingRequestsTool::class, 'outgoing-request'],
 ]);
+
+it('returns seeded job and outgoing request offenders through their slow tools', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'queued-job', 'App\Jobs\SendWelcomeEmail', $today, 12, 80, 150, 120, 145);
+    seedAggregateBucket('checkout', 'outgoing-request', 'GET api.example.com', $today, 8, 40, 90, 75, 85);
+
+    $jobOffenders = app(AggregateWindow::class)->topOffenders('queued-job', 7, 'checkout', null, 'p95', 10);
+
+    expect($jobOffenders)->toHaveCount(1)
+        ->and($jobOffenders[0]['normalized_key'])->toBe('App\Jobs\SendWelcomeEmail')
+        ->and($jobOffenders[0]['count'])->toBe(12.0)
+        ->and($jobOffenders[0]['p95'])->toBe(120.0);
+
+    HoneMcpServer::tool(SlowJobsTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('App\\\\Jobs\\\\SendWelcomeEmail')
+        ->assertSee('120')
+        ->assertSee('12');
+
+    HoneMcpServer::tool(SlowOutgoingRequestsTool::class, ['app' => 'checkout'])
+        ->assertOk()
+        ->assertSee('GET api.example.com')
+        ->assertSee('75')
+        ->assertSee('8');
+});
