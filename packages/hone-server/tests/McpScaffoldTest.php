@@ -67,28 +67,55 @@ it('reflects the latest occurred at timestamp for ingest freshness', function ()
 
     HoneMcpServer::tool(IngestFreshnessTool::class)
         ->assertOk()
-        ->assertSee('2026-06-09T12:30:00.000000Z');
+        ->assertSee('2026-06-09T14:30:00.000000Z');
 });
 
-it('gates the web mcp endpoint with a configured bearer token', function (?string $configuredToken, ?string $presentedToken, bool $authorized): void {
+it('fails closed for unauthenticated web mcp requests', function (?string $configuredToken, ?string $presentedToken): void {
     config()->set('hone-server.mcp.token', $configuredToken);
 
     $request = $this->postJson((string) config('hone-server.mcp.path'), [], $presentedToken === null ? [] : [
         'Authorization' => 'Bearer '.$presentedToken,
     ]);
 
-    if ($authorized) {
-        expect($request->getStatusCode())->not->toBe(401);
-
-        return;
-    }
-
     $request->assertUnauthorized();
 })->with([
-    'no configured token fails closed' => [null, 'secret-token', false],
-    'missing bearer token' => ['secret-token', null, false],
-    'wrong bearer token' => ['secret-token', 'wrong', false],
-    'matching bearer token' => ['secret-token', 'secret-token', true],
+    'no configured token fails closed' => [null, 'secret-token'],
+    'missing bearer token' => ['secret-token', null],
+    'wrong bearer token' => ['secret-token', 'wrong'],
+]);
+
+it('accepts an authenticated web mcp initialize request', function (): void {
+    config()->set('hone-server.mcp.token', 'secret-token');
+
+    $this->postJson((string) config('hone-server.mcp.path'), [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'initialize',
+        'params' => [
+            'protocolVersion' => '2025-06-18',
+            'capabilities' => [],
+            'clientInfo' => [
+                'name' => 'hone-test',
+                'version' => '1.0.0',
+            ],
+        ],
+    ], [
+        'Authorization' => 'Bearer secret-token',
+    ])
+        ->assertOk()
+        ->assertJsonPath('result.serverInfo.name', 'Hone');
+});
+
+it('does not expose unauthenticated non post mcp methods as a data path', function (string $method): void {
+    config()->set('hone-server.mcp.token', 'secret-token');
+
+    // Laravel MCP registers inert GET/DELETE responders for method negotiation; they must not return data.
+    $response = $this->json($method, (string) config('hone-server.mcp.path'));
+
+    expect($response->getStatusCode())->toBeIn([401, 405]);
+})->with([
+    'GET' => ['GET'],
+    'DELETE' => ['DELETE'],
 ]);
 
 it('scopes record types to the requested app', function (): void {

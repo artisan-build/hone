@@ -44,6 +44,7 @@ abstract class TestCase extends Orchestra
             'database' => 'hone_server_test',
             'username' => 'root',
             'password' => '',
+            'timezone' => 'UTC',
         ]);
         $app['config']->set('database.connections.hone', [
             'driver' => 'pgsql',
@@ -55,6 +56,7 @@ abstract class TestCase extends Orchestra
             'charset' => 'utf8',
             'prefix' => '',
             'search_path' => 'public',
+            'timezone' => 'UTC',
         ]);
     }
 }

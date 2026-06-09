@@ -30,6 +30,7 @@ final class HoneServerServiceProvider extends ServiceProvider
             'charset' => 'utf8',
             'prefix' => '',
             'search_path' => 'public',
+            'timezone' => 'UTC',
         ]);
     }
 
