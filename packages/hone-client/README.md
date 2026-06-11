@@ -50,6 +50,22 @@ php artisan hone:install
 `hone-client` at a caret constraint (`^X`), and confirms your Nightwatch setup will activate.
 It is idempotent and asks for consent before touching any file.
 
+### Setting up with a coding agent (skill)
+
+This package ships a **`configuring-hone-client`** skill so a skill-aware coding agent (Claude
+Code, etc.) can do the whole setup for you. After `composer require`, it lives at:
+
+```
+vendor/artisan-build/hone-client/skills/configuring-hone-client/SKILL.md
+```
+
+Point your agent at that file (or copy the `configuring-hone-client/` directory into your
+project's `.claude/skills/`) and ask it to *"configure the Hone client."* The skill walks
+through the prerequisites, `hone:install`, **verifying the Nightwatch transport rebind is
+active** (the step that actually proves it's working), setting the `NIGHTWATCH_DEPLOY` deploy
+dimension, confirming receipt on the Hone server over MCP, and the common
+"telemetry isn't arriving" failure modes.
+
 ### Source-app environment
 
 ```dotenv
