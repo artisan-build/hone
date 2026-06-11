@@ -76,7 +76,7 @@ read-only to its own repository and published to Packagist:
 | --- | --- | --- | --- |
 | [`artisan-build/hone-contracts`](https://github.com/artisan-build/hone-contracts) | read-only split | both packages | The versioned wire envelope. The single place compatibility lives. |
 | [`artisan-build/hone-client`](https://github.com/artisan-build/hone-client) | read-only split | monitored apps | The send side: Nightwatch transport rebind, batching, POST, install/update commands. |
-| `artisan-build/hone-server` | read-only split | the Hone app | The receive side: ingest, storage, rollups, prune, and the MCP server. |
+| [`artisan-build/hone-server`](https://github.com/artisan-build/hone-server) | read-only split | the Hone app | The receive side: ingest, storage, rollups, prune, and the MCP server. |
 
 The **Hone app** (this repository's root) is a slim Laravel shell — token handout plus
 wiring `hone-server`. It pulls its packages from Packagist and stays thin so there's no
@@ -116,6 +116,16 @@ Run one isolated Laravel Cloud environment per client: the Hone app, one Postgre
 and Redis. Hone stores its thin app tables and telemetry tables in Postgres through the
 `hone` connection; in the default app setup `HONE_DB_*` points at the same database as
 `DB_*`.
+
+> **Using a coding agent? Let the skill do it.** This repo ships a
+> [`provisioning-hone-on-cloud`](.claude/skills/provisioning-hone-on-cloud/SKILL.md) skill
+> that automates everything in this section. Open the monorepo with a skill-aware agent
+> (Claude Code, etc.) and ask it to *"provision a Hone instance on Laravel Cloud."* The skill
+> sizes the environment as a small/medium/large tier, and **only after you confirm** uses the
+> `cloud` CLI to provision Postgres, Redis, a web instance, a managed queue, and the
+> scheduler, wire the `HONE_*` config, deploy, migrate, and issue the first source-app token.
+> It specializes the Cloud CLI's generic `deploying-laravel-cloud` skill. The manual steps
+> below are the same thing by hand.
 
 Required production environment:
 
@@ -177,6 +187,14 @@ php artisan hone:install
 `NIGHTWATCH_ENABLED=true` when needed, then pins `artisan-build/hone-client` to a clean caret
 major constraint in `composer.json`. No `NIGHTWATCH_TOKEN` is needed for Hone. Set
 `NIGHTWATCH_DEPLOY` in the source app at deploy time so Hone can compare releases.
+
+> **Using a coding agent in the source app?** `hone-client` ships a `configuring-hone-client`
+> skill (under `vendor/artisan-build/hone-client/skills/configuring-hone-client/` once the
+> package is installed). Point your agent at it and ask it to *"configure the Hone client"* —
+> it covers `composer require`, `hone:install`, **verifying the Nightwatch transport rebind is
+> actually active**, setting the deploy dimension, confirming server-side receipt over MCP, and
+> troubleshooting why telemetry isn't arriving. See the
+> [hone-client README](packages/hone-client/README.md#installation) for details.
 
 ## Connecting a coding agent (MCP)
 
