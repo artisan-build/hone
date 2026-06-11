@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "65dc56016b28f072e678a40cb83c7c29",
+    "content-hash": "21a8feb7e8e6f6596ff0410cc40cc616",
     "packages": [
         {
             "name": "artisan-build/hone-contracts",
@@ -6295,16 +6295,16 @@
         },
         {
             "name": "artisan-build/kibble",
-            "version": "v1.1.0",
+            "version": "v1.2.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/kibble.git",
-                "reference": "3941c453e8c073701184bcde8b261b06cdadaae5"
+                "reference": "62eb3f7887699980d9070e094da62149de63cc3f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/kibble/zipball/3941c453e8c073701184bcde8b261b06cdadaae5",
-                "reference": "3941c453e8c073701184bcde8b261b06cdadaae5",
+                "url": "https://api.github.com/repos/artisan-build/kibble/zipball/62eb3f7887699980d9070e094da62149de63cc3f",
+                "reference": "62eb3f7887699980d9070e094da62149de63cc3f",
                 "shasum": ""
             },
             "require": {
@@ -6343,9 +6343,9 @@
             "description": "PHP package creation and management tools",
             "support": {
                 "issues": "https://github.com/artisan-build/kibble/issues",
-                "source": "https://github.com/artisan-build/kibble/tree/v1.1.0"
+                "source": "https://github.com/artisan-build/kibble/tree/v1.2.0"
             },
-            "time": "2026-06-11T07:32:05+00:00"
+            "time": "2026-06-11T08:47:51+00:00"
         },
         {
             "name": "artisan-build/packagist",

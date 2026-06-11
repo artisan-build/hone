@@ -18,7 +18,7 @@
         "laravel/tinker": "^3.0"
     },
     "require-dev": {
-        "artisan-build/kibble": "^1.1",
+        "artisan-build/kibble": "^1.2",
         "barryvdh/laravel-ide-helper": "^3.6",
         "driftingly/rector-laravel": "^2.1",
         "fakerphp/faker": "^1.24",
