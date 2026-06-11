@@ -1,124 +1,89 @@
 # Hone resource plan — tiers, sizing, command sequence, env vars
 
-All size names below are **examples from the live catalog at authoring time** — always re-resolve them
-with `cloud instance:sizes --json -n` and `cloud cache:types --json -n` for the target region, because
-the catalog changes. The tiers are deliberately coarse; calibrate after the first real test drive.
+Size names below are **examples from the live catalog** — always re-resolve with `cloud instance:sizes --json -n`
+and `cloud cache:types --json -n` for the target region. Tiers are coarse; calibrate after the first real run.
+Read [cli-reality.md](cli-reality.md) first — it marks which steps need the dashboard on cloud-cli v0.5.0.
 
 ## Tier presets
 
-| Tier | Web instance | Autoscale | Worker `--processes` | Redis (`upstash_redis`) | Postgres disk target | Rough capacity |
+| Tier | Web instance | Autoscale | Managed queue | Redis (`upstash_redis`) | Postgres | Rough capacity |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Small** | `flex-512mb` (or `flex-1gb`) | none — 1 replica | `1` | `250mb` | smallest cluster | kicking the tires; 1–2 low-traffic source apps; **≲ 1M events/day** |
-| **Medium** | `flex-2gb` | custom, `1`–`3` | `2` | `1gb` | size for ~30 GB raw | a handful of production apps; **~1–10M events/day** |
-| **Large** | `flex-4gb`+ | custom, `2`–`5` | `4`+ | `2.5gb`+ | size for ~150 GB+ raw | many / high-traffic apps; **~10–50M+ events/day** |
+| **Small** | `flex-1gb` (`flex-512mb` floor) | 1 replica | smallest (`mq-pro-256mb`) | `250mb` | Neon default CU | test drive / 1–2 low-traffic apps, **≲ 1M events/day** |
+| **Medium** | `flex-2gb` | 1–3 | mid | `1gb` | Neon, raise cu_max | a few production apps, **~1–10M events/day** |
+| **Large** | `flex-4gb`+ | 2–5 | larger | `2.5gb`+ | Neon, higher cu_max | many/high-traffic, **~10–50M+ events/day** |
 
-"Events" = telemetry records, ~1 stored `raw_events` row each. Bias to the smaller tier that plausibly
-fits — scaling up later is a one-line `:update`.
-
-### Storage sizing (the dimension that actually drives Postgres)
-
-`raw_events` dominate and are retained `HONE_RETENTION_RAW_HOURS` (default 72h = 3 days):
+"Events" = telemetry records ≈ 1 `raw_events` row each. Postgres is **Neon serverless** (autoscaling
+compute units, suspends when idle), so a quiet instance is cheap; storage is the main driver:
 
 ```
-raw_disk  ≈  events/day  ×  (HONE_RETENTION_RAW_HOURS / 24)  ×  ~1 KB/event
+raw_disk ≈ events/day × (HONE_RETENTION_RAW_HOURS / 24) × ~1 KB/event   (e.g. 10M/day × 3d ≈ ~30 GB)
 ```
 
-e.g. 10M events/day × 3 days × 1 KB ≈ **~30 GB**. Add modest headroom for `aggregates` (rolled up daily,
-retained 90 days) and `samples` (7 days), plus index overhead — round up generously. If the user raises
-`HONE_RETENTION_RAW_HOURS`, raw disk scales linearly.
+Bias to the smaller tier — scaling up is a one-line `:update`.
 
-## Provisioning sequence
-
-Run `cloud <cmd> -h` before each unfamiliar command. `<...>` are values captured from prior `--json`
-output. Pick `<size>` / `<redis-size>` / `<N>` from the chosen tier after resolving them against the live
-catalog. Use a consistent `<region>` for every resource.
+## Provisioning sequence (validated; `<...>` = captured from prior `--json`)
 
 ```sh
-# 0. Discover (don't hardcode)
-cloud instance:sizes --json -n
-cloud cache:types   --json -n
+# 0. Discover; pick region == the source apps' region (cloud app:list --json -n)
+cloud instance:sizes --json -n ; cloud cache:types --json -n
 
-# 1. Application (skip if it already exists — check `cloud app:list --json -n`)
+# 1. Application (auto-creates a default env). Skip if it exists.
 cloud application:create --name hone-<client> --repository artisan-build/hone --region <region> --json -n
-#    capture: application id
+cloud application:get <app-id> --json -n            # capture defaultEnvironmentId (the env) + env url
 
-# 2. Environment (one isolated env per client)
-cloud environment:create <app-id> --name production --branch main --json -n
-#    capture: environment id, url
+# 2. Postgres cluster (Neon serverless) + schema
+cloud database-cluster:create --name hone-<client> --type neon_serverless_postgres_18 --region <region> --json -n
+cloud database:create <cluster-id> --name hone --json -n          # <cluster> is positional
 
-# 3. Postgres cluster + schema
-cloud database-cluster:create --name hone-<client> --type postgres --region <region> --json -n
-#    capture: cluster id, connection (host/port/user/password/database)
-cloud database:create <cluster-id> --name hone --json -n          # VERIFY AT RUNTIME: db:create arg/option names via -h
+# 3. Redis cache (both --auto-upgrade-enabled and --is-public are REQUIRED)
+cloud cache:create --name hone-<client> --type upstash_redis --region <region> --size <redis-size> \
+  --auto-upgrade-enabled=false --is-public=false --json -n
 
-# 4. Redis cache (also the queue backend)
-cloud cache:create --name hone-<client> --type upstash_redis --region <region> --size <redis-size> --json -n
-#    capture: cache id, connection
+# 4. Managed queue (replaces the deprecated worker; needs aws/aws-sdk-php in the app)
+cloud managed-queue:create -n                                     # creates a managed_queue instance
 
-# 5. Web instance (+ scheduler). Medium/Large add the autoscaling flags.
-cloud instance:create <env-id> --type app --size <size> --uses-scheduler=true --json -n
-#    Medium/Large also: --scaling-type custom --min-replicas <min> --max-replicas <max>
-#    capture: instance id
+# 5. Web instance — DASHBOARD on v0.5.0 (instance:create is bugged non-interactively).
+#    The app already has a default instance; in the dashboard set its size (flex-1gb) + Scheduler ON.
+#    Scheduler can also be flipped via CLI once the instance exists:
+cloud instance:update <app-instance-id> --uses-scheduler=true --json -n --force
 
-# 6. Queue worker — drains ProcessTelemetryBatch off Redis
-cloud background-process:create <instance-id> --type worker --connection redis --queue default --processes <N> --json -n
+# 6. Attach DB + cache to the env — DASHBOARD on v0.5.0 (env:update flags silently no-op).
+#    Attach the Postgres cluster (schema "hone") and the Redis cache to the environment.
 
-# 7. Attach DB + cache to the environment.
-#    VERIFY AT RUNTIME: attachment may happen automatically at :create, or need an environment:update /
-#    a flag. Check `cloud environment:get <env-id> --json -n` for databaseSchemaId / cacheId; if unset,
-#    consult `cloud environment:update -h` and `cloud database:create -h` / `cloud cache:create -h`.
+# 7. Env vars (loop; --action set upserts one key, preserves others). Use ${DB_*} (Cloud injects them on
+#    deploy from the attached DB). Leave HONE_QUEUE_CONNECTION UNSET → job uses the default = managed queue.
+for kv in \
+  'HONE_DB_HOST=${DB_HOST}' 'HONE_DB_PORT=${DB_PORT}' 'HONE_DB_DATABASE=${DB_DATABASE}' \
+  'HONE_DB_USERNAME=${DB_USERNAME}' 'HONE_DB_PASSWORD=${DB_PASSWORD}' \
+  'HONE_MCP_TOKEN=<generated 64-hex>' 'APP_URL=https://<env-url>' ; do
+  k=${kv%%=*}; v=${kv#*=}
+  cloud environment:variables <env-id> --action set --key "$k" --value "$v" -n --force   # single-quote ${...} in real shells
+done
+# Retention defaults (72/90/7) and HONE_MCP_PATH (/mcp) match config defaults — set only to override.
 
-# 8. Environment variables (see checklist below). Either many --action set calls or one file:
-cloud environment:variables <env-id> --action set --key HONE_MCP_TOKEN --value <generated> -n --force
-#    ...repeat per var, or pass a prepared env file per `cloud environment:variables -h`.
+# 8. Deploy (auto-runs migrations) + poll
+cloud deploy hone-<client> main --no-wait -n                      # returns deployment_id
+cloud deployment:get <deployment_id> --json -n                    # poll status until deployment.succeeded
 
-# 9. Deploy + monitor (delegate monitor to a subagent)
-cloud deploy hone-<client> production -n --open
-cloud deploy:monitor -n
-
-# 10. Migrate
-cloud command:run <env-id> "migrate --force" -n
-
-# 11. First source-app token (prints plaintext once + the HONE_APP_TOKENS= entry)
-cloud command:run <env-id> "hone:issue-token <source-app-id>" -n
-#    append the printed entry to HONE_APP_TOKENS (step 8) and redeploy
+# 9. First source-app token, then register it + redeploy
+cloud command:run <env-id> --cmd="php artisan hone:issue-token <source-app-id>" -n   # prints token + entry
+cloud environment:variables <env-id> --action set --key HONE_APP_TOKENS --value "<id>=<sha256>" -n --force
+cloud deploy hone-<client> main --no-wait -n                      # redeploy to apply HONE_APP_TOKENS
 ```
 
 ## Environment variable checklist
 
-Mirrors the README's "Required production environment". Cloud may auto-inject `DB_*` and `REDIS_*` when a
-database/cache is attached — **VERIFY AT RUNTIME** with `cloud environment:get <env-id> --json -n`; if it
-does, set the `HONE_DB_*` values to match the injected `DB_*` rather than re-entering them.
+`HONE_QUEUE_CONNECTION` **unset** on purpose → the ingest job dispatches on the app's default connection,
+which is the managed queue. Cloud injects `DB_*`/`REDIS_*` at deploy from the attached resources.
 
 | Key | Value |
 | --- | --- |
-| `APP_KEY` | generate (`base64:…`) — or let the deploy/build generate it |
-| `APP_ENV` | `production` |
-| `APP_URL` | `https://<env-url>` |
-| `DB_CONNECTION` | `pgsql` |
-| `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` | from the Postgres cluster `connection` (or Cloud-injected) |
-| `HONE_DB_HOST` / `HONE_DB_PORT` / `HONE_DB_DATABASE` / `HONE_DB_USERNAME` / `HONE_DB_PASSWORD` | same values as the `DB_*` above |
-| `QUEUE_CONNECTION` | `redis` |
-| `HONE_QUEUE_CONNECTION` | `redis` |
-| `HONE_APP_TOKENS` | `app-id=sha256hash` entries (from `hone:issue-token`); may start empty, fill after step 11 |
+| `APP_URL` | `https://<env-url>` (`APP_KEY` is auto-generated by Cloud) |
+| `HONE_DB_HOST/PORT/DATABASE/USERNAME/PASSWORD` | `${DB_HOST}` … `${DB_PASSWORD}` (track injected `DB_*`) |
 | `HONE_MCP_TOKEN` | a strong random secret (the agent's bearer token) |
-| `HONE_MCP_PATH` | `/mcp` (default) |
-| `HONE_RETENTION_RAW_HOURS` | `72` (raising this raises Postgres disk linearly) |
-| `HONE_RETENTION_AGGREGATE_DAYS` | `90` |
-| `HONE_RETENTION_SAMPLE_DAYS` | `7` |
-| `NIGHTWATCH_DEPLOY` | the deployed short commit SHA — set via a build step (`echo "NIGHTWATCH_DEPLOY=$(git rev-parse --short HEAD)" >> .env`) |
+| `HONE_MCP_PATH` | `/mcp` (default — set only to override) |
+| `HONE_RETENTION_RAW_HOURS` / `_AGGREGATE_DAYS` / `_SAMPLE_DAYS` | `72` / `90` / `7` (defaults) |
+| `HONE_APP_TOKENS` | `app-id=sha256hash` entries from `hone:issue-token` (set after step 9, then redeploy) |
+| `NIGHTWATCH_DEPLOY` | the deployed short SHA (build step) — for the *deploy* dimension |
 
-Do **not** set a `NIGHTWATCH_TOKEN` (Hone doesn't use one) and do **not** enable Cloud's Nightwatch
-integration on this app.
-
-## Gotchas to confirm on the first real run
-
-- **Region consistency** — app, database cluster, cache, and instance should share a region for low
-  latency and to avoid cross-region surprises.
-- **DB/cache attachment + env injection** — see step 7 and the env note above; this is the most likely
-  spot to need a `-h` check on the live CLI.
-- **Redis as the queue** — `background-process --connection redis` assumes `QUEUE_CONNECTION=redis`
-  resolves to the attached cache. If Cloud models the queue as a separate `managed-queue` instead,
-  switch to `managed-queue:create` + point the worker/`HONE_QUEUE_CONNECTION` at it.
-- **Worker count vs `processes`** — start at the tier's `--processes`; if `ingest_freshness` (an MCP
-  tool) shows the queue lagging, raise it before raising instance size.
+Do **not** set `NIGHTWATCH_TOKEN` and do **not** enable Cloud's Nightwatch integration on this app.
