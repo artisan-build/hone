@@ -23,8 +23,11 @@ final class RollupCommand extends Command
                     normalized_key,
                     deploy,
                     date(occurred_at AT TIME ZONE 'UTC') AS bucket_date,
+                    -- Nightwatch reports `duration` in microseconds; divide by 1000 so aggregates
+                    -- are stored in milliseconds. A literal `duration_ms` field is already in
+                    -- milliseconds and used as-is.
                     COALESCE(
-                        CASE WHEN jsonb_typeof(payload->'duration') = 'number' THEN (payload->>'duration')::double precision END,
+                        CASE WHEN jsonb_typeof(payload->'duration') = 'number' THEN (payload->>'duration')::double precision / 1000.0 END,
                         CASE WHEN jsonb_typeof(payload->'duration_ms') = 'number' THEN (payload->>'duration_ms')::double precision END
                     ) AS numeric_value
                 FROM raw_events

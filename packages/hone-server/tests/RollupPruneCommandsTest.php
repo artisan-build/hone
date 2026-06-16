@@ -51,6 +51,37 @@ it('rolls raw events into count and duration aggregate metrics', function (): vo
         ->and(Aggregate::query()->pluck('sample_count')->unique()->all())->toBe([5]);
 });
 
+it('converts Nightwatch microsecond durations to milliseconds', function (): void {
+    $occurredAt = Carbon::parse('2026-06-09 12:00:00+00');
+
+    // Nightwatch emits `duration` in microseconds; these are 10/20/30/40/100 ms.
+    foreach ([10_000, 20_000, 30_000, 40_000, 100_000] as $durationMicros) {
+        RawEvent::factory()->create([
+            'app' => 'checkout',
+            'record_type' => 'query',
+            'normalized_key' => 'delete-from-sessions',
+            'deploy' => 'abc123',
+            'occurred_at' => $occurredAt,
+            'payload' => ['duration' => $durationMicros],
+        ]);
+    }
+
+    Artisan::call('hone:rollup');
+
+    $aggregates = Aggregate::query()
+        ->where('app', 'checkout')
+        ->where('record_type', 'query')
+        ->where('normalized_key', 'delete-from-sessions')
+        ->whereDate('bucket_date', '2026-06-09')
+        ->pluck('value', 'metric');
+
+    $expectedP95 = percentileFor([10, 20, 30, 40, 100], 0.95);
+
+    expect($aggregates['avg'])->toBe(40.0)
+        ->and($aggregates['max'])->toBe(100.0)
+        ->and(abs($aggregates['p95'] - $expectedP95))->toBeLessThan(0.5);
+});
+
 it('keeps rollups idempotent for unknown deploy groups', function (): void {
     RawEvent::factory()->count(2)->create([
         'app' => 'checkout',
