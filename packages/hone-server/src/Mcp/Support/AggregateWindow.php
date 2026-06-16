@@ -19,12 +19,16 @@ final class AggregateWindow
     /**
      * @return list<array{normalized_key: string, count: float|null, sample_count: int, avg: float|null, max: float|null, p95: float|null, p99: float|null, last_bucket_date: string|null}>
      */
-    public function topOffenders(string $recordType, int $days, ?string $app, ?string $deploy, string $sortMetric, int $limit): array
+    public function topOffenders(string $recordType, int $days, ?string $app, ?string $deploy, string $sortMetric, int $limit, bool $excludeRouteless = false): array
     {
         $this->ensureMetric($sortMetric);
 
         return $this->combinedQuery($recordType, $days, $app, $deploy)
             ->addSelect('normalized_key')
+            // Routeless keys are bare HTTP methods (e.g. "GET") from unmatched requests such as 404 scanner
+            // traffic. Matched routes always key as "METHOD /path", so requiring a space drops the noise that
+            // would otherwise dominate the slowest-endpoint ranking with an inflated percentile.
+            ->when($excludeRouteless, fn (Builder $query) => $query->where('normalized_key', 'like', '% %'))
             ->groupBy('normalized_key')
             ->orderByRaw($sortMetric.' DESC NULLS LAST')
             ->limit($limit)

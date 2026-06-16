@@ -43,6 +43,7 @@ trait HandlesSlowMetricTool
                 $validated['deploy'] ?? null,
                 $metric,
                 $limit,
+                $this->excludesRoutelessKeys(),
             ),
         ]);
     }
@@ -62,4 +63,12 @@ trait HandlesSlowMetricTool
     }
 
     abstract protected function recordType(): string;
+
+    /**
+     * Whether to drop routeless keys (bare HTTP methods from unmatched requests) from the ranking.
+     */
+    protected function excludesRoutelessKeys(): bool
+    {
+        return false;
+    }
 }
