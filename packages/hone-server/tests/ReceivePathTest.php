@@ -149,6 +149,8 @@ it('normalizes raw Nightwatch record type values', function (string $recordType,
     'log level' => ['log', ['level' => 'error'], 'error'],
     'user id' => ['user', ['id' => '42'], '42'],
     'cache store and type' => ['cache-event', ['store' => 'redis', 'type' => 'hit'], 'redis:hit'],
+    'request by route path' => ['request', ['method' => 'GET', 'route_path' => '/posts/{post}'], 'GET /posts/{post}'],
+    'request without a matched route keeps the method' => ['request', ['method' => 'POST', 'route_path' => ''], 'POST'],
 ]);
 
 it('persists after response on sync queues using the token app instead of envelope app', function (): void {
