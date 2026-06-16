@@ -21,4 +21,9 @@ final class SlowRequestsTool extends Tool
     {
         return 'request';
     }
+
+    protected function excludesRoutelessKeys(): bool
+    {
+        return true;
+    }
 }

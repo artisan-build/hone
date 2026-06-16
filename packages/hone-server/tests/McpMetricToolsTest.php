@@ -96,6 +96,38 @@ it('returns slow queries ordered by p95 and honors limit and app filter', functi
         ->assertDontSee('billing-query');
 });
 
+it('excludes routeless request keys from the slow requests ranking', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    // Unmatched 404 traffic collapses to a bare method key and would otherwise win the p95 ranking.
+    seedAggregateBucket('checkout', 'request', 'GET', $today, 172, 800, 4000, 2900, 3900);
+    seedAggregateBucket('checkout', 'request', 'GET /posts/{post}', $today, 72, 300, 700, 560, 690);
+
+    $rows = app(AggregateWindow::class)->topOffenders('request', 7, 'checkout', null, 'p95', 10, true);
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['normalized_key'])->toBe('GET /posts/{post}');
+
+    HoneMcpServer::tool(SlowRequestsTool::class, [
+        'app' => 'checkout',
+        'metric' => 'p95',
+    ])
+        ->assertOk()
+        ->assertSee('GET /posts/{post}')
+        ->assertDontSee('"GET"');
+});
+
+it('still ranks routeless keys for non-request metrics', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'query', 'select-users-by-id', $today, 10, 30, 80, 75, 79);
+
+    $rows = app(AggregateWindow::class)->topOffenders('query', 7, 'checkout', null, 'p95', 10);
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['normalized_key'])->toBe('select-users-by-id');
+});
+
 it('returns generic query metrics over the requested window', function (): void {
     $today = Carbon::now('UTC')->startOfDay();
 
