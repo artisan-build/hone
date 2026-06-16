@@ -2,35 +2,18 @@
 
 declare(strict_types=1);
 
-$tokens = array_filter(array_map('trim', explode(',', (string) env('HONE_APP_TOKENS', ''))));
-
 return [
     /*
-     | HONE_APP_TOKENS format: "checkout=sha256hash,billing=another-sha256hash".
-     | Generate entries with `php artisan hone:issue-token {app}`.
+     | Ingest and MCP bearer tokens are managed by artisan-build/built-for-cloud:
+     | per-app tokens live in the `api_tokens` table (issue them with
+     | `php artisan token:create {name}`), plus an optional `FALLBACK_TOKEN`.
      */
-    'apps' => array_values(array_filter(array_map(function (string $token): ?array {
-        [$id, $tokenHash] = array_pad(explode('=', $token, 2), 2, '');
-
-        $id = trim($id);
-        $tokenHash = trim($tokenHash);
-
-        if ($id === '' || strlen($tokenHash) !== 64 || ! ctype_xdigit($tokenHash)) {
-            return null;
-        }
-
-        return [
-            'id' => $id,
-            'token_hash' => strtolower($tokenHash),
-        ];
-    }, $tokens))),
     'route_prefix' => env('HONE_ROUTE_PREFIX', ''),
 
     // Use an async connection such as redis for throughput; afterResponse keeps ingest unblocked even on sync.
     'queue' => env('HONE_QUEUE_CONNECTION'),
     'mcp' => [
         'path' => env('HONE_MCP_PATH', '/mcp'),
-        'token' => env('HONE_MCP_TOKEN'),
         'local_name' => env('HONE_MCP_LOCAL_NAME', 'hone'),
     ],
     'database' => [

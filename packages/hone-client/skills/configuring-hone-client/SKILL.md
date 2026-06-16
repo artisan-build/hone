@@ -7,7 +7,7 @@ description: "Configure a Laravel app to send its laravel/nightwatch telemetry t
 
 `artisan-build/hone-client` rebinds `laravel/nightwatch`'s transport so **this app's** telemetry is sent to
 your self-hosted Hone server instead of Nightwatch's cloud. This is per-app: you need the Hone **ingest
-URL** and a **token** for this app (issued on the Hone server with `php artisan hone:issue-token <app-id>`).
+URL** and a **token** for this app (issued on the Hone server with `php artisan token:create <app-id>`).
 
 ## Prerequisites
 
@@ -62,8 +62,8 @@ supported range. Rule: upgrade the **Hone server first**, then bump clients.
 - **`HONE_URL`** must end in `/ingest`; **`NIGHTWATCH_ENABLED`** must be truthy; run `php artisan config:clear`.
 - **Rebind not active** (step 3 prints Nightwatch's class): confirm both packages installed and
   `HONE_URL`+`HONE_TOKEN` are both set (the provider stays inert if only one is set, and warns).
-- **Server returns 401**: this app's token isn't in the server's `HONE_APP_TOKENS` — re-issue on the
-  server and redeploy it.
+- **Server returns 401**: this app's token doesn't resolve on the server — re-issue it there with
+  `php artisan token:create <app-id>` (or check `FALLBACK_TOKEN`) and update `HONE_TOKEN` here.
 - Don't wait for client-side errors — Hone is silent by design. Verify the rebind here and receipt on the
   server (MCP `list-apps`/`ingest-freshness`, or the server's `raw_events`).
 

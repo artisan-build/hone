@@ -133,8 +133,12 @@ Required production environment:
   `DB_PASSWORD`.
 - `HONE_DB_HOST`, `HONE_DB_PORT`, `HONE_DB_DATABASE`, `HONE_DB_USERNAME`, and
   `HONE_DB_PASSWORD`, usually copied from the matching `DB_*` values.
-- `HONE_APP_TOKENS`, as comma-separated `app-id=sha256_token_hash` entries.
-- `HONE_MCP_TOKEN` and `HONE_MCP_PATH`; the default MCP HTTP path is `/mcp`.
+- Bearer tokens for both ingest and MCP are managed by
+  [`artisan-build/built-for-cloud`](https://github.com/artisan-build/built-for-cloud): issue
+  per-app tokens with `php artisan token:create <name>` (stored hashed in `api_tokens`), or set
+  a single `FALLBACK_TOKEN` for bootstrap. Any resolving token may both ingest telemetry and
+  read it back over MCP.
+- `HONE_MCP_PATH`; the default MCP HTTP path is `/mcp`.
 - `QUEUE_CONNECTION=redis` and `HONE_QUEUE_CONNECTION=redis` so accepted ingest batches
   are processed by Redis workers.
 - `HONE_RETENTION_RAW_HOURS`, `HONE_RETENTION_AGGREGATE_DAYS`, and
@@ -163,16 +167,18 @@ default queue so `ProcessTelemetryBatch` jobs drain accepted ingest batches.
 
 ## Adding a source app
 
-On the Hone server, issue a source application token:
+On the Hone server, issue a source application token with the
+[`artisan-build/built-for-cloud`](https://github.com/artisan-build/built-for-cloud) command:
 
 ```shell
-php artisan hone:issue-token <app-id>
+php artisan token:create <app-id>
 ```
 
-The app id must be non-empty and cannot contain `=` or `,`. The command prints the plaintext
-token once, its SHA-256 hash, and the exact `HONE_APP_TOKENS` entry. Add that
-`app-id=sha256hash` entry to `HONE_APP_TOKENS` on the Hone server, comma-separated from any
-existing entries, and redeploy.
+The command generates the plaintext token, prints it once, and stores only its hash in the
+`api_tokens` table — there is no env var to edit and no redeploy needed. Rotate, revoke, list,
+and inspect usage with `token:rotate`, `token:revoke`, `token:list`, and `token:usage`. For a
+low-ceremony bootstrap you can instead set a single `FALLBACK_TOKEN` in the environment (delete
+it and use per-app tokens for production).
 
 In the source Laravel app, install Nightwatch and the Hone client:
 
@@ -199,9 +205,10 @@ major constraint in `composer.json`. No `NIGHTWATCH_TOKEN` is needed for Hone. S
 ## Connecting a coding agent (MCP)
 
 The HTTP MCP server is registered at `HONE_MCP_PATH` and requires an
-`Authorization: Bearer <HONE_MCP_TOKEN>` header. Requests without the configured token fail
-closed with `401`. For local Claude Code use, the same server is registered as a stdio MCP
-server under `HONE_MCP_LOCAL_NAME`, defaulting to `hone`.
+`Authorization: Bearer <token>` header, where the token is any `api_tokens` entry (issued with
+`token:create`) or the `FALLBACK_TOKEN`. Requests without a resolving token fail closed with
+`401`. For local Claude Code use, the same server is registered as a stdio MCP server under
+`HONE_MCP_LOCAL_NAME`, defaulting to `hone`.
 
 Hone exposes 19 read-only MCP tools: discovery tools for apps, record types, deploys, and
 ingest freshness; slow-path tools for requests, queries, jobs, and outgoing requests;

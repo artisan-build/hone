@@ -25,3 +25,6 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# Laravel Cloud CLI local config
+.cloud/
