@@ -35,7 +35,7 @@ it('registers the web MCP route behind bearer authentication', function (): void
 
 it('registers Hone commands and schedules maintenance', function (): void {
     expect(Artisan::all())->toHaveKeys([
-        'hone:issue-token',
+        'token:create',
         'hone:maintain',
         'hone:rollup',
         'hone:prune',

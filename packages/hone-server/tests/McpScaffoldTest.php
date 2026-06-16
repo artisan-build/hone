@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BuiltForCloud\ApiToken;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
@@ -70,8 +71,8 @@ it('reflects the latest occurred at timestamp for ingest freshness', function ()
         ->assertSee('2026-06-09T14:30:00.000000Z');
 });
 
-it('fails closed for unauthenticated web mcp requests', function (?string $configuredToken, ?string $presentedToken): void {
-    config()->set('hone-server.mcp.token', $configuredToken);
+it('fails closed for unauthenticated web mcp requests', function (?string $presentedToken): void {
+    config()->set('built-for-cloud.fallback_token', null);
 
     $request = $this->postJson((string) config('hone-server.mcp.path'), [], $presentedToken === null ? [] : [
         'Authorization' => 'Bearer '.$presentedToken,
@@ -79,13 +80,12 @@ it('fails closed for unauthenticated web mcp requests', function (?string $confi
 
     $request->assertUnauthorized();
 })->with([
-    'no configured token fails closed' => [null, 'secret-token'],
-    'missing bearer token' => ['secret-token', null],
-    'wrong bearer token' => ['secret-token', 'wrong'],
+    'missing bearer token' => [null],
+    'unknown bearer token' => ['wrong-token'],
 ]);
 
-it('accepts an authenticated web mcp initialize request', function (): void {
-    config()->set('hone-server.mcp.token', 'secret-token');
+it('accepts an authenticated web mcp initialize request with a database token', function (): void {
+    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
 
     $this->postJson((string) config('hone-server.mcp.path'), [
         'jsonrpc' => '2.0',
@@ -106,8 +106,30 @@ it('accepts an authenticated web mcp initialize request', function (): void {
         ->assertJsonPath('result.serverInfo.name', 'Hone');
 });
 
+it('accepts an authenticated web mcp initialize request with the fallback token', function (): void {
+    config()->set('built-for-cloud.fallback_token', 'fallback-secret');
+
+    $this->postJson((string) config('hone-server.mcp.path'), [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'initialize',
+        'params' => [
+            'protocolVersion' => '2025-06-18',
+            'capabilities' => [],
+            'clientInfo' => [
+                'name' => 'hone-test',
+                'version' => '1.0.0',
+            ],
+        ],
+    ], [
+        'Authorization' => 'Bearer fallback-secret',
+    ])
+        ->assertOk()
+        ->assertJsonPath('result.serverInfo.name', 'Hone');
+});
+
 it('does not expose unauthenticated non post mcp methods as a data path', function (string $method): void {
-    config()->set('hone-server.mcp.token', 'secret-token');
+    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
 
     // Laravel MCP registers inert GET/DELETE responders for method negotiation; they must not return data.
     $response = $this->json($method, (string) config('hone-server.mcp.path'));

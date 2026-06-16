@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Http\Controllers;
 
+use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\HoneContracts\Envelope;
 use ArtisanBuild\HoneContracts\Exceptions\InvalidEnvelope;
-use ArtisanBuild\HoneServer\AppRegistry;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,9 +15,9 @@ use JsonException;
 
 final class IngestController
 {
-    public function ingest(Request $request, AppRegistry $registry): JsonResponse
+    public function ingest(Request $request, TokenRegistry $tokens): JsonResponse
     {
-        $appId = $registry->resolve((string) $request->bearerToken());
+        $appId = $tokens->resolve((string) $request->bearerToken());
 
         if ($appId === null) {
             return response()->json(['message' => 'Unauthorized.'], 401);

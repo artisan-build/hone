@@ -2,22 +2,23 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BuiltForCloud\ApiToken;
+use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\HoneContracts\Envelope;
-use ArtisanBuild\HoneServer\AppRegistry;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function (): void {
-    config()->set('hone-server.apps', [
-        ['id' => 'checkout', 'token_hash' => hash('sha256', 'secret-token')],
-        ['id' => 'billing', 'token_hash' => hash('sha256', 'billing-token')],
-    ]);
+    config()->set('built-for-cloud.fallback_token', null);
+
+    ApiToken::factory()->create(['name' => 'checkout', 'token_hash' => hash('sha256', 'secret-token')]);
+    ApiToken::factory()->create(['name' => 'billing', 'token_hash' => hash('sha256', 'billing-token')]);
 });
 
 it('resolves bearer tokens to registered app ids', function (): void {
-    $registry = new AppRegistry;
+    $registry = app(TokenRegistry::class);
 
     expect($registry->resolve('secret-token'))->toBe('checkout')
         ->and($registry->resolve('wrong'))->toBeNull();

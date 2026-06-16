@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Tests;
 
+use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
 use ArtisanBuild\HoneServer\HoneServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,6 +28,7 @@ abstract class TestCase extends Orchestra
     {
         return [
             McpServiceProvider::class,
+            BuiltForCloudServiceProvider::class,
             HoneServerServiceProvider::class,
         ];
     }
