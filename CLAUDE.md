@@ -180,3 +180,11 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Do NOT delete tests without approval.
 
 </laravel-boost-guidelines>
+
+## Workflow
+
+Feature builds use the `multi-agent-build` skill (a coordinated multi-PR subagent loop).
+Project specifics — the gate command, harness map, merge policy, CI, and plan location —
+live in **`.solo/workflow.md`**. Read that profile before coordinating a build.
+
+Merge policy: **gate on CI (Mode A)** — PRs merge on green CI, no human code review.
