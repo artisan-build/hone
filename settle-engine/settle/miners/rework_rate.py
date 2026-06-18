@@ -167,7 +167,7 @@ def _git(repo: Path, *args: str, attempts: int = _GIT_MAX_ATTEMPTS) -> str:
     last_exc: subprocess.CalledProcessError | None = None
     for attempt in range(1, attempts + 1):
         try:
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
             return result.stdout
         except subprocess.CalledProcessError as exc:
             last_exc = exc

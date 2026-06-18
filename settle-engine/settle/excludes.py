@@ -72,6 +72,8 @@ def _git(repo: Path, *args: str, stdin: str | None = None) -> str:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         input=stdin,
     )
     return result.stdout

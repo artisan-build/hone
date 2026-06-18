@@ -72,8 +72,20 @@ class RunSettleScan implements ShouldQueue
 
         // Single combined run: --backtest computes and writes score.json, score_trajectory.json,
         // score_coverage.json AND score_backtest.json — a superset of the plain run.
+        // Run through a tiny runpy wrapper that prints peak RSS (self,children) to stderr on exit.
+        $wrapper = <<<'PY'
+import sys, runpy, resource, atexit
+def _peak():
+    sys.stderr.write("SETTLE_PEAK_RSS_KB=%d,%d\n" % (
+        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss))
+atexit.register(_peak)
+sys.argv = sys.argv[1:]
+runpy.run_module("settle.score", run_name="__main__")
+PY;
         $scanProc = $this->run([
-            'python3', '-m', 'settle.score',
+            'python3', '-c', $wrapper,
+            'settle.score',
             '--repo', $clone,
             '--now', $now,
             '--out', $out,
@@ -87,6 +99,15 @@ class RunSettleScan implements ShouldQueue
 
         $diskAfterScan = (int) round(@disk_free_space($tmp) / 1048576);
         $cloneSizeMb = $this->dirSizeMb($clone);
+
+        // Peak RSS (KB on Linux) printed by the runpy wrapper: "SETTLE_PEAK_RSS_KB=<self>,<children>".
+        $peakRssSelfKb = null;
+        $peakRssChildrenKb = null;
+        if (preg_match('/SETTLE_PEAK_RSS_KB=(\d+),(\d+)/', $scanProc['stderr'], $m)) {
+            $peakRssSelfKb = (int) $m[1];
+            $peakRssChildrenKb = (int) $m[2];
+        }
+        $df = $this->run(['df', '-h', $tmp], $tmp, 30);
 
         $outputs = [];
         foreach (['score.json', 'score_trajectory.json', 'score_coverage.json', 'score_backtest.json'] as $file) {
@@ -109,6 +130,12 @@ class RunSettleScan implements ShouldQueue
                 'free_after_scan_mb' => $diskAfterScan,
                 'peak_used_mb' => $diskStart - min($diskAfterClone, $diskAfterScan),
                 'clone_dir_size_mb' => $cloneSizeMb,
+                'df_tmp' => trim($df['stdout']),
+            ],
+            'memory' => [
+                'peak_rss_self_mb' => $peakRssSelfKb !== null ? round($peakRssSelfKb / 1024, 1) : null,
+                'peak_rss_children_mb' => $peakRssChildrenKb !== null ? round($peakRssChildrenKb / 1024, 1) : null,
+                'note' => 'ru_maxrss; KB on Linux. self=python aggregator, children=largest git child.',
             ],
             'clone_ok' => $cloneProc['ok'],
             'scan_ok' => $scanProc['ok'],
