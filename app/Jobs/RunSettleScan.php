@@ -16,7 +16,11 @@ class RunSettleScan implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 1;
+    // Cloud's managed queue has a 60s visibility timeout: a multi-minute job is redelivered
+    // every 60s. With a low $tries the broker eventually marks it "too many retries" and reaps
+    // the in-flight worker. A high $tries lets each redelivery actually run handle(), hit the
+    // idempotency lock, return success and ack/delete the message — so redelivery stops.
+    public int $tries = 50;
 
     public int $timeout = 1800;
 
@@ -90,7 +94,7 @@ PY;
             '--now', $now,
             '--out', $out,
             '--backtest',
-            '--jobs', '2',
+            '--jobs', '8',
         ], $engine, 1700, ['PYTHONPATH' => $engine, 'GIT_TERMINAL_PROMPT' => '0']);
         $this->status(['phase' => 'scanned', 'scan_ok' => $scanProc['ok']]);
         if (! $scanProc['ok']) {
