@@ -28,3 +28,4 @@ yarn-error.log
 
 # Laravel Cloud CLI local config
 .cloud/
+.phpstorm.meta.php
