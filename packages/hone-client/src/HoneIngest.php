@@ -13,7 +13,7 @@ use Throwable;
 
 final class HoneIngest implements Ingest
 {
-    private const float MINIMUM_TIMEOUT = 0.05;
+    private const MINIMUM_TIMEOUT = 0.05;
 
     /**
      * @var list<array<string, mixed>>
