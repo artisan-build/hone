@@ -15,10 +15,10 @@
         }
     ],
     "require": {
-        "php": "^8.3",
+        "php": "^8.2",
         "artisan-build/hone-contracts": "^1.0",
-        "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
-        "illuminate/support": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/contracts": "^10.0 || ^11.0 || ^12.0 || ^13.0",
+        "illuminate/support": "^10.0 || ^11.0 || ^12.0 || ^13.0",
         "laravel/nightwatch": "^1.28"
     },
     "require-dev": {

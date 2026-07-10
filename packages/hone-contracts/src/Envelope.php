@@ -26,7 +26,7 @@ final class Envelope
      * change. Crossing this in a client is a deliberate `composer require`, never a
      * routine `composer update` (hone-client pins hone-contracts at `^X`).
      */
-    public const int VERSION = 1;
+    public const VERSION = 1;
 
     /**
      * @param  string  $app  The source application id (one Hone env may receive many apps).
