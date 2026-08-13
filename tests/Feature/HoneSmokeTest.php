@@ -1,9 +1,11 @@
 <?php
 
+use ArtisanBuild\BuiltForCloud\BuiltForCloud;
 use ArtisanBuild\HoneContracts\Envelope;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
 it('boots the headless Hone app root route', function (): void {
@@ -54,7 +56,29 @@ it('runs Hone Postgres migrations and persists raw events on the hone connection
 
     expect(Schema::connection('hone')->hasTable('raw_events'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('aggregates'))->toBeTrue()
-        ->and(Schema::connection('hone')->hasTable('samples'))->toBeTrue();
+        ->and(Schema::connection('hone')->hasTable('samples'))->toBeTrue()
+        ->and(Schema::hasTable('api_tokens'))->toBeTrue()
+        ->and(Schema::hasColumn('api_tokens', 'abilities'))->toBeTrue()
+        ->and(Schema::hasTable('ownership_claims'))->toBeTrue()
+        ->and(Schema::hasTable('ownership'))->toBeTrue()
+        ->and(Schema::hasTable('onboarding_tokens'))->toBeTrue();
+
+    $this->getJson('/bfc/meta')
+        ->assertOk()
+        ->assertJsonPath('bfc_version', BuiltForCloud::VERSION)
+        ->assertJsonPath('api_version', BuiltForCloud::API_VERSION)
+        ->assertJsonPath('capabilities', ['tokens', 'ownership', 'onboarding', 'webhooks'])
+        ->assertJsonPath('claimed', false);
+
+    expect(collect(Route::getRoutes())->map->uri()->all())->toContain(
+        'bfc/meta',
+        'bfc/ownership/claim',
+        'bfc/ownership/release',
+        'bfc/ownership/cancel-transfer',
+        'bfc/onboarding/issue',
+        'bfc/onboarding/exchange',
+        'bfc/onboarding/verify',
+    );
 
     $event = RawEvent::query()->create([
         'app' => 'checkout',
