@@ -1,8 +1,12 @@
 <?php
 
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+
+/** /bfc/meta reads the `ownership` table, so this file cannot rely on another test having migrated. */
+uses(RefreshDatabase::class);
 
 /*
 |--------------------------------------------------------------------------
