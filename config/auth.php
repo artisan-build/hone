@@ -6,19 +6,9 @@ return [
         'passwords' => null,
     ],
 
-    'guards' => [
-        'web' => [
-            'driver' => 'session',
-            'provider' => 'users',
-        ],
-    ],
+    'guards' => [],
 
-    'providers' => [
-        'users' => [
-            'driver' => 'database',
-            'table' => 'users',
-        ],
-    ],
+    'providers' => [],
 
     'passwords' => [],
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
