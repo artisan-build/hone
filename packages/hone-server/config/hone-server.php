@@ -16,13 +16,21 @@ return [
         'path' => env('HONE_MCP_PATH', '/mcp'),
         'local_name' => env('HONE_MCP_LOCAL_NAME', 'hone'),
     ],
+    /*
+     | Telemetry shares the application's own database unless one of these is set: with every
+     | HONE_DB_* value unset, the `hone` connection resolves to the application's default
+     | connection. Set any of them to isolate telemetry onto a separate Postgres database —
+     | the values given here override the inherited ones, the rest carry across. No fallback
+     | defaults: an unset value has to stay distinguishable from a configured one.
+     */
     'database' => [
         'connection' => 'hone',
-        'host' => env('HONE_DB_HOST', '127.0.0.1'),
-        'port' => env('HONE_DB_PORT', 5432),
-        'database' => env('HONE_DB_DATABASE', 'hone'),
-        'username' => env('HONE_DB_USERNAME', 'hone'),
-        'password' => env('HONE_DB_PASSWORD', ''),
+        'url' => env('HONE_DB_URL'),
+        'host' => env('HONE_DB_HOST'),
+        'port' => env('HONE_DB_PORT'),
+        'database' => env('HONE_DB_DATABASE'),
+        'username' => env('HONE_DB_USERNAME'),
+        'password' => env('HONE_DB_PASSWORD'),
     ],
     'retention' => [
         'raw_hours' => (int) env('HONE_RETENTION_RAW_HOURS', 72),
