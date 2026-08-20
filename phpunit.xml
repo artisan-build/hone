@@ -30,11 +30,6 @@
         <env name="DB_USERNAME" value="root"/>
         <env name="DB_PASSWORD" value=""/>
         <env name="DB_URL" value=""/>
-        <env name="HONE_DB_HOST" value="127.0.0.1"/>
-        <env name="HONE_DB_PORT" value="5432"/>
-        <env name="HONE_DB_DATABASE" value="hone_app_test"/>
-        <env name="HONE_DB_USERNAME" value="root"/>
-        <env name="HONE_DB_PASSWORD" value=""/>
         <env name="HONE_MCP_TOKEN" value="test-mcp-token"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

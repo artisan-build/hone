@@ -114,8 +114,10 @@ normal state, not an error.** The wire protocol is built to tolerate it:
 
 Run one isolated Laravel Cloud environment per client: the Hone app, one Postgres database,
 and Redis. Hone stores its thin app tables and telemetry tables in Postgres through the
-`hone` connection; in the default app setup `HONE_DB_*` points at the same database as
-`DB_*`.
+`hone` connection, which **defaults to the application's own database** — fork, deploy, and
+one Cloud Postgres serves both with no telemetry-specific configuration. The two sets of
+tables never join across connections, so a separate telemetry database stays available as an
+opt-in (see `HONE_DB_*` below).
 
 > **Using a coding agent? Let the skill do it.** This repo ships a
 > [`provisioning-hone-on-cloud`](.claude/skills/provisioning-hone-on-cloud/SKILL.md) skill
@@ -131,8 +133,13 @@ Required production environment:
 
 - `DB_CONNECTION=pgsql` plus `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and
   `DB_PASSWORD`.
-- `HONE_DB_HOST`, `HONE_DB_PORT`, `HONE_DB_DATABASE`, `HONE_DB_USERNAME`, and
-  `HONE_DB_PASSWORD`, usually copied from the matching `DB_*` values.
+- *(optional)* `HONE_DB_URL`, `HONE_DB_HOST`, `HONE_DB_PORT`, `HONE_DB_DATABASE`,
+  `HONE_DB_USERNAME`, and `HONE_DB_PASSWORD` — **only** to isolate telemetry onto a separate
+  Postgres database. Leave them unset and telemetry shares the `DB_*` database. Set any one of
+  them and the rest are inherited from the app's connection, so overriding just
+  `HONE_DB_DATABASE` moves telemetry to another database on the same server. Hone's telemetry
+  schema is Postgres-only (`jsonb` columns, `jsonb_typeof()` at rollup), so both the app
+  connection and any telemetry override must be Postgres.
 - Bearer tokens for both ingest and MCP are managed by
   [`artisan-build/built-for-cloud`](https://github.com/artisan-build/built-for-cloud): issue
   per-app tokens with `php artisan token:create <name>` (stored hashed in `api_tokens`), or set
