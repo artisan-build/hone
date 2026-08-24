@@ -161,6 +161,40 @@ it('posts an envelope with buffered records and bearer token on digest', functio
     });
 });
 
+it('sends the bfc client identity header alongside the token on digest', function (): void {
+    config()->set('bfc-client.identity', 'install-abc123');
+
+    Http::fake();
+
+    $ingest = honeIngest();
+    $ingest->write(['t' => 'query', 'sql' => 'select 1']);
+
+    $ingest->digest();
+
+    Http::assertSent(function (Request $request): bool {
+        return $request->url() === 'https://hone.test/ingest'
+            && $request->hasHeader('Authorization', 'Bearer secret-token')
+            && $request->hasHeader('X-BfC-Client-Id', 'install-abc123');
+    });
+});
+
+it('still delivers telemetry when the bfc client identity is unusable', function (): void {
+    config()->set('bfc-client.identity', str_repeat('a', 256));
+
+    Http::fake();
+
+    $ingest = honeIngest();
+    $ingest->write(['t' => 'query', 'sql' => 'select 1']);
+
+    $ingest->digest();
+
+    Http::assertSent(function (Request $request): bool {
+        return $request->url() === 'https://hone.test/ingest'
+            && $request->hasHeader('Authorization', 'Bearer secret-token')
+            && ! $request->hasHeader('X-BfC-Client-Id');
+    });
+});
+
 it('fails open when the http client throws', function (): void {
     $attempts = 0;
     Http::fake(function () use (&$attempts): never {

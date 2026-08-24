@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneClient\Tests;
 
+use ArtisanBuild\BfcClient\BfcClientServiceProvider;
 use ArtisanBuild\HoneClient\HoneClientServiceProvider;
 use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -16,6 +17,6 @@ abstract class TestCase extends Orchestra
      */
     protected function getPackageProviders($app): array
     {
-        return [HoneClientServiceProvider::class];
+        return [BfcClientServiceProvider::class, HoneClientServiceProvider::class];
     }
 }

@@ -6,6 +6,7 @@ namespace ArtisanBuild\HoneClient;
 
 use ArtisanBuild\HoneContracts\Envelope;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
 use Laravel\Nightwatch\Contracts\Ingest;
 use Psr\Log\LoggerInterface;
@@ -105,24 +106,47 @@ final class HoneIngest implements Ingest
                 records: $records,
             )->toArray();
 
-            $this->http
+            $this->pendingRequest()
                 ->withToken($this->token)
                 ->connectTimeout($this->connectTimeout)
                 ->timeout($this->timeout)
                 ->post($this->url, $envelope)
                 ->throw();
         } catch (Throwable $e) {
-            try {
-                $this->logger->debug('Hone ingest failed; dropping buffered records.', [
-                    'exception' => $e,
-                ]);
-            } catch (Throwable) {
-                // Fail open even if the host application's logger is unavailable.
-            }
+            $this->debug('Hone ingest failed; dropping buffered records.', $e);
         } finally {
             if ($clearBuffer) {
                 $this->buffer = [];
             }
+        }
+    }
+
+    /**
+     * Start the request to the Hone server carrying this installation's BfC
+     * client identity, so the server can attribute the ingest token to a
+     * specific install.
+     *
+     * The identity only labels the install and never grants anything, so an
+     * identity that cannot be resolved degrades to an unlabelled request
+     * rather than stopping telemetry from reaching Hone.
+     */
+    private function pendingRequest(): PendingRequest
+    {
+        try {
+            return $this->http->withClientIdentity();
+        } catch (Throwable $e) {
+            $this->debug('Hone ingest could not resolve the BfC client identity; sending without it.', $e);
+
+            return $this->http->createPendingRequest();
+        }
+    }
+
+    private function debug(string $message, Throwable $e): void
+    {
+        try {
+            $this->logger->debug($message, ['exception' => $e]);
+        } catch (Throwable) {
+            // Fail open even if the host application's logger is unavailable.
         }
     }
 }

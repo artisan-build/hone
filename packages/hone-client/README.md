@@ -100,6 +100,24 @@ update your apps.**
 `hone-client` also emits a one-line local nudge when the installed `hone-contracts` **major**
 changes, reminding you to run `hone:update`. It's zero-network — just a reminder.
 
+## Client identity
+
+`hone-client` carries [`artisan-build/bfc-client`](https://github.com/artisan-build/bfc-client),
+which gives this installation a **stable, opaque identity** so the Hone server can attribute an
+ingest token to a specific install.
+
+- Every telemetry POST to `HONE_URL` carries the identity in an **`X-BfC-Client-Id`** header,
+  alongside the `HONE_TOKEN` bearer auth. The identity is a **label, never a credential** — it
+  grants nothing on its own. It is only ever sent to your Hone server.
+- If the identity cannot be resolved, telemetry still ships — **without** the header. Attribution
+  is never worth dropping telemetry for.
+- The identity defaults to a UUID generated once and persisted to
+  `storage_path('app/bfc-client/identity')`. **On an ephemeral filesystem set
+  `BFC_CLIENT_IDENTITY` explicitly**, or the identity churns on every deploy.
+- `bfc-client` also registers an unauthenticated, throttled `GET /bfc-client` proof-of-life route
+  that returns the package name and this identity. Move it with `BFC_CLIENT_PROOF_OF_LIFE_PATH`
+  or disable it with `BFC_CLIENT_PROOF_OF_LIFE=false`.
+
 ## Privacy
 
 Hone adds **no** redaction layer; redaction belongs in your Nightwatch config, before
