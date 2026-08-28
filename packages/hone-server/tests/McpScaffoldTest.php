@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\ApiToken;
+use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
@@ -106,26 +107,34 @@ it('accepts an authenticated web mcp initialize request with a database token', 
         ->assertJsonPath('result.serverInfo.name', 'Hone');
 });
 
-it('accepts an authenticated web mcp initialize request with the fallback token', function (): void {
+it('denies the fallback token for web mcp requests', function (): void {
     config()->set('built-for-cloud.fallback_token', 'fallback-secret');
 
-    $this->postJson((string) config('hone-server.mcp.path'), [
-        'jsonrpc' => '2.0',
-        'id' => 1,
-        'method' => 'initialize',
-        'params' => [
-            'protocolVersion' => '2025-06-18',
-            'capabilities' => [],
-            'clientInfo' => [
-                'name' => 'hone-test',
-                'version' => '1.0.0',
-            ],
-        ],
-    ], [
+    $this->postJson((string) config('hone-server.mcp.path'), [], [
         'Authorization' => 'Bearer fallback-secret',
-    ])
-        ->assertOk()
-        ->assertJsonPath('result.serverInfo.name', 'Hone');
+    ])->assertUnauthorized();
+});
+
+it('denies an expired token for web mcp requests', function (): void {
+    ApiToken::factory()->create([
+        'name' => 'demo',
+        'token_hash' => hash('sha256', 'secret-token'),
+        'expires_at' => now()->subMinute(),
+    ]);
+
+    $this->postJson((string) config('hone-server.mcp.path'), [], [
+        'Authorization' => 'Bearer secret-token',
+    ])->assertUnauthorized();
+});
+
+it('denies a revoked token for web mcp requests', function (): void {
+    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
+
+    app(TokenRegistry::class)->revoke('demo');
+
+    $this->postJson((string) config('hone-server.mcp.path'), [], [
+        'Authorization' => 'Bearer secret-token',
+    ])->assertUnauthorized();
 });
 
 it('does not expose unauthenticated non post mcp methods as a data path', function (string $method): void {
