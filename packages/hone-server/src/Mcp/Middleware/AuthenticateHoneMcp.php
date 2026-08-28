@@ -18,7 +18,7 @@ final class AuthenticateHoneMcp
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->tokens->resolve((string) $request->bearerToken()) === null) {
+        if ($this->tokens->resolveModel((string) $request->bearerToken()) === null) {
             abort(401);
         }
 
