@@ -14,7 +14,6 @@ return [
     'queue' => env('HONE_QUEUE_CONNECTION'),
     'mcp' => [
         'path' => env('HONE_MCP_PATH', '/mcp'),
-        'local_name' => env('HONE_MCP_LOCAL_NAME', 'hone'),
     ],
     /*
      | Telemetry shares the application's own database unless one of these is set: with every
