@@ -2,8 +2,10 @@
 
 use ArtisanBuild\BuiltForCloud\BuiltForCloud;
 use ArtisanBuild\HoneContracts\Envelope;
+use ArtisanBuild\HoneServer\Mcp\Middleware\AuthenticateHoneMcp;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -31,7 +33,12 @@ it('rejects ingest requests without a valid source token', function (): void {
 });
 
 it('registers the web MCP route behind bearer authentication', function (): void {
-    $this->postJson(config('hone-server.mcp.path', '/mcp'), [])
+    $path = (string) config('hone-server.mcp.path', '/mcp');
+    $route = Route::getRoutes()->match(Request::create($path, 'POST'));
+
+    expect($route->gatherMiddleware())->toContain(AuthenticateHoneMcp::class);
+
+    $this->postJson($path, [])
         ->assertUnauthorized();
 });
 

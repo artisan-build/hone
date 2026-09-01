@@ -51,8 +51,7 @@ misses a field," never an ingest failure.
 
 ## MCP server
 
-- **Transport:** Streamable HTTP with a per-environment bearer token (for remote agents and
-  CI), plus stdio for local Claude Code.
+- **Transport:** Streamable HTTP with a per-environment bearer token (for remote agents and CI).
 - **Read-only and multi-app aware:** every tool takes an optional `app` filter and otherwise
   aggregates across the environment's apps.
 - **Tools (v1):** `slow_requests`, `slow_queries`, `slow_jobs`, `slow_outgoing_requests`,

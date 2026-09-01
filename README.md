@@ -214,8 +214,7 @@ major constraint in `composer.json`. No `NIGHTWATCH_TOKEN` is needed for Hone. S
 The HTTP MCP server is registered at `HONE_MCP_PATH` and requires an
 `Authorization: Bearer <token>` header, where the token is any `api_tokens` entry (issued with
 `token:create`) or the `FALLBACK_TOKEN`. Requests without a resolving token fail closed with
-`401`. For local Claude Code use, the same server is registered as a stdio MCP server under
-`HONE_MCP_LOCAL_NAME`, defaulting to `hone`.
+`401`.
 
 Hone exposes 19 read-only MCP tools: discovery tools for apps, record types, deploys, and
 ingest freshness; slow-path tools for requests, queries, jobs, and outgoing requests;

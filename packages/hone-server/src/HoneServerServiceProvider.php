@@ -76,8 +76,6 @@ final class HoneServerServiceProvider extends ServiceProvider
         $this->app->booted(function (): void {
             Mcp::web((string) config('hone-server.mcp.path', '/mcp'), HoneMcpServer::class)
                 ->middleware([AuthenticateHoneMcp::class]);
-
-            Mcp::local((string) config('hone-server.mcp.local_name', 'hone'), HoneMcpServer::class);
         });
 
         if ($this->app->runningInConsole()) {
