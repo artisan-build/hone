@@ -2,6 +2,8 @@
 
 **Self-hosted, MCP-only LLM-facing telemetry for Laravel.**
 
+> **Don't want to run it?** Hone is MIT — fork and own it. Or [have Artisan Build run it in your Cloud account](https://artisan.build/start?ref=gh-hone-top) and keep it updated.
+
 Hone is a thin telemetry layer for Laravel apps. It captures
 [`laravel/nightwatch`](https://github.com/laravel/nightwatch) instrumentation, stores a
 pruned slice in a Postgres database **you** control, and exposes it to a coding agent
@@ -172,6 +174,18 @@ scheduler in the environment; the package schedules `php artisan hone:maintain` 
 which runs `hone:rollup` and then `hone:prune`. Run a Redis queue worker cluster for the
 default queue so `ProcessTelemetryBatch` jobs drain accepted ingest batches.
 
+## Prefer not to operate it?
+
+Everything above — an isolated environment per client, Postgres, Redis, a worker cluster,
+the scheduler running `hone:maintain`, retention tuning, and the server-first upgrade
+dance — is a standing ops commitment. It's all documented because the fork-and-own path is
+real and complete.
+
+If you'd rather not carry it, **[Artisan Build will run Hone in your own Laravel Cloud
+account](https://artisan.build/start?ref=gh-hone-deploy)** — your infra, your data, your
+telemetry never leaves your compute — and keep the app, migrations, and version upgrades
+current. You get the self-hosted guarantee without the operational overhead.
+
 ## Adding a source app
 
 On the Hone server, issue a source application token with the
@@ -259,6 +273,12 @@ request bodies or arbitrary event payloads.
 - **No backfill** of client-specific features into the OSS release.
 
 ---
+
+## Managed by Artisan Build
+
+Hone is built and maintained by [Artisan Build](https://artisan.build). Bugs get fixed;
+client-specific features stay in client forks. If you want it deployed and kept current in
+your own Cloud account, [let's talk](https://artisan.build/start?ref=gh-hone-footer).
 
 ## License
 
