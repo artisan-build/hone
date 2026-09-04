@@ -51,7 +51,10 @@ misses a field," never an ingest failure.
 
 ## MCP server
 
-- **Transport:** Streamable HTTP with a per-environment bearer token (for remote agents and CI).
+- **Transport:** Streamable HTTP accepting a resolving `TokenRegistry` bearer or a
+  Scalpels-issued delegated assertion whose signed `purpose` claim is `mcp`. Hone accepts
+  delegated assertions but does not issue them. `/bfc/meta` advertises `mcp-serve`,
+  `mcp-delegated`, and the mounted endpoint path.
 - **Read-only and multi-app aware:** every tool takes an optional `app` filter and otherwise
   aggregates across the environment's apps.
 - **Tools (v1):** `slow_requests`, `slow_queries`, `slow_jobs`, `slow_outgoing_requests`,
@@ -60,8 +63,11 @@ misses a field," never an ingest failure.
   `regression_check`, `deploys`, `ingest_freshness`, `query_metric`, `record_types`,
   `list_apps`.
 
-Output is PII-safe by construction — bindings are never captured and redaction happens
-upstream — so feeding tool results into an agent context doesn't leak customer data.
+Every tool is read-only and D14-classified as `content`, with that declaration advertised in
+`_meta.classification`. This is intentionally conservative: responses can include customer-defined
+app ids, normalized keys, user ids, deploy ids, task names, and similar telemetry. Query bindings
+are not captured and source-side redaction still happens upstream, but callers must treat every
+tool result as customer content.
 
 ## Installation
 

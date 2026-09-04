@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\HoneServer\Mcp\Support\AggregateWindow;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
@@ -18,8 +21,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Name('regression_check')]
 #[Description('Compare one aggregate metric for a normalized key across recent deploys. p95 and p99 use the worst daily percentile per deploy because percentiles cannot be averaged across days.')]
 #[IsReadOnly]
+#[ToolClassification(Classification::Content)]
 final class RegressionCheckTool extends Tool
 {
+    use AdvertisesToolClassification;
+
     public function handle(Request $request): Response
     {
         $validated = $request->validate([

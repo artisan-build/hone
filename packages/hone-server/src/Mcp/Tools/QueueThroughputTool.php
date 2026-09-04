@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\HoneServer\Mcp\Support\AggregateWindow;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
@@ -17,8 +20,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Name('queue_throughput')]
 #[Description('Return total queued job throughput with the top job normalized keys by count.')]
 #[IsReadOnly]
+#[ToolClassification(Classification::Content)]
 final class QueueThroughputTool extends Tool
 {
+    use AdvertisesToolClassification;
+
     public function handle(Request $request): Response
     {
         $validated = $request->validate([

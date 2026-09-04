@@ -142,11 +142,12 @@ Required production environment:
   `HONE_DB_DATABASE` moves telemetry to another database on the same server. Hone's telemetry
   schema is Postgres-only (`jsonb` columns, `jsonb_typeof()` at rollup), so both the app
   connection and any telemetry override must be Postgres.
-- Bearer tokens for both ingest and MCP are managed by
+- Bearer tokens for ingest and registry-token MCP access are managed by
   [`artisan-build/built-for-cloud`](https://github.com/artisan-build/built-for-cloud): issue
   per-app tokens with `php artisan token:create <name>` (stored hashed in `api_tokens`), or set
-  a single `FALLBACK_TOKEN` for bootstrap. Any resolving token may both ingest telemetry and
-  read it back over MCP.
+  a single `FALLBACK_TOKEN` for ingest bootstrap. Any resolving `api_tokens` entry may both ingest
+  telemetry and read it back over MCP. MCP also accepts a Scalpels-issued delegated assertion
+  whose signed `purpose` claim is `mcp`; Hone accepts these assertions but does not issue them.
 - `HONE_MCP_PATH`; the default MCP HTTP path is `/mcp`.
 - `QUEUE_CONNECTION=redis` and `HONE_QUEUE_CONNECTION=redis` so accepted ingest batches
   are processed by Redis workers.
@@ -226,14 +227,19 @@ major constraint in `composer.json`. No `NIGHTWATCH_TOKEN` is needed for Hone. S
 ## Connecting a coding agent (MCP)
 
 The HTTP MCP server is registered at `HONE_MCP_PATH` and requires an
-`Authorization: Bearer <token>` header, where the token is any `api_tokens` entry (issued with
-`token:create`) or the `FALLBACK_TOKEN`. Requests without a resolving token fail closed with
-`401`.
+`Authorization: Bearer <credential>` header. The credential may be any resolving `api_tokens`
+entry issued with `token:create`, or a Scalpels-issued delegated assertion carrying the signed
+claim `purpose: mcp`. Hone verifies and accepts delegated assertions but never issues them.
+Requests without a valid credential fail closed with `401`. `/bfc/meta` advertises the mounted
+path through `endpoints.mcp` and the `mcp-serve` and `mcp-delegated` capabilities.
 
 Hone exposes 19 read-only MCP tools: discovery tools for apps, record types, deploys, and
 ingest freshness; slow-path tools for requests, queries, jobs, and outgoing requests;
 `query_metric`, `regression_check`, `exceptions`, `top_users`, and volume/stat tools for
 cache events, queues, mail, notifications, scheduled tasks, commands, and logs by level.
+Every tool is D14-classified as `content` and advertises that classification in
+`_meta.classification`; even count-oriented responses can carry a customer-defined app id,
+normalized key, user id, deploy id, task name, or similar customer telemetry.
 
 ## Upgrading
 
