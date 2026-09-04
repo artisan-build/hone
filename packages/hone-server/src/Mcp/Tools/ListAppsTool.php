@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
@@ -14,8 +17,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Description('List apps reporting telemetry to Hone with their latest raw event timestamp.')]
 #[IsReadOnly]
+#[ToolClassification(Classification::Content)]
 final class ListAppsTool extends Tool
 {
+    use AdvertisesToolClassification;
+
     public function handle(Request $request): Response
     {
         $apps = DB::connection('hone')->table('raw_events')

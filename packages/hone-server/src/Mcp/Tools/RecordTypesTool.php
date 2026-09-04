@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Query\Builder;
 use Illuminate\JsonSchema\Types\Type;
@@ -16,8 +19,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Description('List raw telemetry record types and counts, optionally scoped to one app.')]
 #[IsReadOnly]
+#[ToolClassification(Classification::Content)]
 final class RecordTypesTool extends Tool
 {
+    use AdvertisesToolClassification;
+
     public function handle(Request $request): Response
     {
         $validated = $request->validate([

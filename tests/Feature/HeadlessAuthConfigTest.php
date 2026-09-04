@@ -93,3 +93,15 @@ it('keeps Built for Cloud personal credential routes unreachable without a local
 it('has no user model, so nothing may depend on resolving one', function (): void {
     expect(class_exists('App\Models\User'))->toBeFalse();
 });
+
+it('keeps serving MCP without advertising delegated assertions when that declaration is disabled', function (): void {
+    config()->set('built-for-cloud.mcp.delegated', false);
+
+    $response = $this->getJson('/bfc/meta')->assertOk();
+    $capabilities = $response->json('capabilities');
+
+    expect($capabilities)->toContain('mcp-serve')
+        ->not->toContain('mcp-delegated');
+
+    $response->assertJsonPath('endpoints.mcp', (string) config('hone-server.mcp.path'));
+});

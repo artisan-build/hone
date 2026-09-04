@@ -1,8 +1,8 @@
 <?php
 
 use ArtisanBuild\BuiltForCloud\BuiltForCloud;
+use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
 use ArtisanBuild\HoneContracts\Envelope;
-use ArtisanBuild\HoneServer\Mcp\Middleware\AuthenticateHoneMcp;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Request;
@@ -36,7 +36,7 @@ it('registers the web MCP route behind bearer authentication', function (): void
     $path = (string) config('hone-server.mcp.path', '/mcp');
     $route = Route::getRoutes()->match(Request::create($path, 'POST'));
 
-    expect($route->gatherMiddleware())->toContain(AuthenticateHoneMcp::class);
+    expect(app('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class);
 
     $this->postJson($path, [])
         ->assertUnauthorized();
@@ -84,7 +84,10 @@ it('runs Hone Postgres migrations and persists raw events on the hone connection
             'console-key-retire',
             'console-vitals',
             'app-action-audit-emit',
+            'mcp-serve',
+            'mcp-delegated',
         ])
+        ->assertJsonPath('endpoints.mcp', (string) config('hone-server.mcp.path'))
         ->assertJsonPath('claimed', false);
 
     expect(collect(Route::getRoutes())->map->uri()->all())->toContain(

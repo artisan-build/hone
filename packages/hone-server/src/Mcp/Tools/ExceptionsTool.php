@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\HoneServer\Mcp\Support\AggregateWindow;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
@@ -17,8 +20,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Name('exceptions')]
 #[Description('List exception normalized keys by volume with their most recent aggregate bucket date.')]
 #[IsReadOnly]
+#[ToolClassification(Classification::Content)]
 final class ExceptionsTool extends Tool
 {
+    use AdvertisesToolClassification;
+
     public function handle(Request $request): Response
     {
         $validated = $request->validate([

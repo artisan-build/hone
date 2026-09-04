@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\ApiToken;
+use ArtisanBuild\BuiltForCloud\Console\AssertionBurn;
+use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
+use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
@@ -11,6 +14,16 @@ use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RecordTypesTool;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
+
+it('loads the framework migrations required for delegated assertions', function (): void {
+    expect(Schema::hasTable('bfc_delegated_actors'))->toBeTrue()
+        ->and(Schema::hasTable('bfc_console_assertion_burns'))->toBeTrue();
+});
+
+it('conforms every advertised tool to the delegated MCP contract', function (): void {
+    McpDelegatedTools::assertConforms(HoneMcpServer::class);
+});
 
 it('lists apps reporting to hone', function (): void {
     RawEvent::factory()->create([
@@ -105,6 +118,82 @@ it('accepts an authenticated web mcp initialize request with a database token', 
     ])
         ->assertOk()
         ->assertJsonPath('result.serverInfo.name', 'Hone');
+});
+
+it('returns a real tool result for an MCP-purpose delegated assertion', function (): void {
+    RawEvent::factory()->create(['app' => 'checkout']);
+
+    $response = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion(),
+    ]);
+
+    $response->assertOk();
+    $result = json_decode((string) $response->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($result)->toHaveKey('apps')
+        ->and($result['apps'])->toHaveCount(1)
+        ->and($result['apps'][0]['app'])->toBe('checkout')
+        ->and($result['apps'][0]['last_seen'])->toBeString();
+});
+
+it('refuses the same delegated assertion when it is replayed', function (): void {
+    $assertion = honeMcpAssertion();
+    $headers = ['Authorization' => 'Bearer '.$assertion];
+
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), $headers)
+        ->assertOk();
+
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), $headers)
+        ->assertUnauthorized()
+        ->assertExactJson(['message' => 'Unauthenticated.']);
+
+    expect(AssertionBurn::query()->count())->toBe(1);
+});
+
+it('refuses a console-entry assertion on the MCP route', function (): void {
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion(['purpose' => 'console-entry']),
+    ])
+        ->assertUnauthorized()
+        ->assertExactJson(['message' => 'Unauthenticated.']);
+
+    expect(AssertionBurn::query()->count())->toBe(0);
+});
+
+it('returns the same real tool result for a TokenRegistry bearer', function (): void {
+    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
+    RawEvent::factory()->create(['app' => 'checkout']);
+
+    $response = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer secret-token',
+    ]);
+
+    $response->assertOk();
+    $result = json_decode((string) $response->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($result)->toHaveKey('apps')
+        ->and($result['apps'])->toHaveCount(1)
+        ->and($result['apps'][0]['app'])->toBe('checkout')
+        ->and($result['apps'][0]['last_seen'])->toBeString();
+});
+
+it('writes no session key while authenticating a delegated assertion', function (): void {
+    $this->withSession(['sentinel' => 'kept'])
+        ->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+            'Authorization' => 'Bearer '.honeMcpAssertion(),
+        ])
+        ->assertOk();
+
+    $session = session()->all();
+
+    expect($session['sentinel'] ?? null)->toBe('kept')
+        ->and(collect(array_keys($session))->contains(
+            fn (string $key): bool => str_starts_with($key, 'login_bfc-console_'),
+        ))->toBeFalse();
+
+    foreach (ConsoleSession::keys() as $key) {
+        expect($session)->not->toHaveKey($key);
+    }
 });
 
 it('denies the fallback token for web mcp requests', function (): void {

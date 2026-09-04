@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer;
 
+use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
 use ArtisanBuild\HoneServer\Database\HoneConnectionConfig;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
-use ArtisanBuild\HoneServer\Mcp\Middleware\AuthenticateHoneMcp;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -20,8 +20,23 @@ final class HoneServerServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/hone-server.php', 'hone-server');
+        $this->declareMcpSurface();
 
         $this->registerTelemetryConnection();
+    }
+
+    /**
+     * Keep Built for Cloud's advertised endpoint coupled to the route Hone mounts.
+     *
+     * Hone owns the environment setting, so copying its resolved path here prevents
+     * HONE_MCP_PATH and a second framework setting from drifting apart.
+     */
+    private function declareMcpSurface(): void
+    {
+        config()->set([
+            'built-for-cloud.mcp.path' => (string) config('hone-server.mcp.path', '/mcp'),
+            'built-for-cloud.mcp.delegated' => true,
+        ]);
     }
 
     /**
@@ -75,7 +90,7 @@ final class HoneServerServiceProvider extends ServiceProvider
 
         $this->app->booted(function (): void {
             Mcp::web((string) config('hone-server.mcp.path', '/mcp'), HoneMcpServer::class)
-                ->middleware([AuthenticateHoneMcp::class]);
+                ->middleware([AuthenticateMcp::class]);
         });
 
         if ($this->app->runningInConsole()) {
