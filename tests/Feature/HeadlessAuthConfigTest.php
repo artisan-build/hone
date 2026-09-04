@@ -48,8 +48,8 @@ it('keeps a resolvable default guard so throttled routes can sign requests', fun
 it('serves throttled Built for Cloud routes without resolving a user', function (): void {
     $this->getJson('/bfc/meta')->assertOk();
 
-    /** Unauthorized is fine; a 500 means the default guard stopped resolving. */
-    $this->postJson('/bfc/onboarding/verify')->assertStatus(401);
+    /** A client error is expected; a 500 means the default guard stopped resolving. */
+    $this->postJson('/bfc/onboarding/verify')->assertClientError();
 });
 
 it('never wires the users provider to the database driver', function (): void {
@@ -64,8 +64,9 @@ it('declares no session guard or provider of its own in config/auth.php', functi
         ->and($config['providers'])->toBe([]);
 });
 
-it('exposes no route behind session authentication middleware', function (): void {
+it('exposes no Hone-owned route behind session authentication middleware', function (): void {
     $offenders = collect(Route::getRoutes())
+        ->reject(fn (RoutingRoute $route): bool => str_starts_with($route->uri(), 'bfc/'))
         ->filter(fn (RoutingRoute $route): bool => collect($route->gatherMiddleware())
             ->contains(fn (mixed $middleware): bool => is_string($middleware) && in_array(
                 $middleware,
@@ -78,6 +79,16 @@ it('exposes no route behind session authentication middleware', function (): voi
 
     expect($offenders)->toBe([]);
 });
+
+it('keeps Built for Cloud personal credential routes unreachable without a local user', function (string $method, string $path): void {
+    $response = $this->json($method, $path);
+
+    $response->assertUnauthorized();
+})->with([
+    'list credentials' => ['GET', '/bfc/me/credentials'],
+    'create credential' => ['POST', '/bfc/me/credentials'],
+    'delete credential' => ['DELETE', '/bfc/me/credentials/1'],
+]);
 
 it('has no user model, so nothing may depend on resolving one', function (): void {
     expect(class_exists('App\Models\User'))->toBeFalse();

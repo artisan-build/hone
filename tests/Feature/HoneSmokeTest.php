@@ -74,7 +74,17 @@ it('runs Hone Postgres migrations and persists raw events on the hone connection
         ->assertOk()
         ->assertJsonPath('bfc_version', BuiltForCloud::VERSION)
         ->assertJsonPath('api_version', BuiltForCloud::API_VERSION)
-        ->assertJsonPath('capabilities', ['tokens', 'ownership', 'onboarding', 'webhooks'])
+        ->assertJsonPath('capabilities', [
+            'tokens',
+            'ownership',
+            'onboarding',
+            'webhooks',
+            'credentials',
+            'console-keys',
+            'console-key-retire',
+            'console-vitals',
+            'app-action-audit-emit',
+        ])
         ->assertJsonPath('claimed', false);
 
     expect(collect(Route::getRoutes())->map->uri()->all())->toContain(
