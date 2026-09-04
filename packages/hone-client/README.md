@@ -5,6 +5,8 @@ app you want to monitor. It redirects that app's own
 [`laravel/nightwatch`](https://github.com/laravel/nightwatch) telemetry to your self-hosted
 Hone server.
 
+See the [default integration guide](docs/integrate/default.md) for agent-driven setup and verification.
+
 > **Read-only mirror.** This repository is a read-only split of the
 > [`artisan-build/hone`](https://github.com/artisan-build/hone) monorepo. Issues and pull
 > requests are disabled here — please open them on the monorepo.
