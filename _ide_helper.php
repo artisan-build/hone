@@ -5,7 +5,7 @@
 
 /**
  * A helper file for Laravel, to provide autocomplete information to your IDE
- * Generated for Laravel 13.29.0.
+ * Generated for Laravel 13.30.1.
  *
  * This file should not be included in your code, only analyzed by your IDE!
  *
@@ -2117,6 +2117,19 @@ namespace Illuminate\Support\Facades {
         {
             /** @var \Illuminate\Foundation\Console\Kernel $instance */
             return $instance->queue($command, $parameters);
+        }
+
+        /**
+         * Get the registered command instance with the given name, if any.
+         *
+         * @param string $name
+         * @return \Symfony\Component\Console\Command\Command|null
+         * @static
+         */
+        public static function findCommand($name)
+        {
+            /** @var \Illuminate\Foundation\Console\Kernel $instance */
+            return $instance->findCommand($name);
         }
 
         /**
@@ -13635,6 +13648,19 @@ namespace Illuminate\Support\Facades {
         }
 
         /**
+         * Register a callback to be executed when creating job payloads.
+         *
+         * @param callable|null $callback
+         * @return void
+         * @static
+         */
+        public static function createPayloadUsing($callback)
+        {
+            /** @var \Illuminate\Queue\QueueManager $instance */
+            $instance->createPayloadUsing($callback);
+        }
+
+        /**
          * Resolve the default connection name for a given queueable instance.
          *
          * @param object $queueable
@@ -14420,19 +14446,6 @@ namespace Illuminate\Support\Facades {
             //Method inherited from \Illuminate\Queue\Queue 
             /** @var \Illuminate\Queue\DatabaseQueue $instance */
             return $instance->getJobExpiration($job);
-        }
-
-        /**
-         * Register a callback to be executed when creating job payloads.
-         *
-         * @param callable|null $callback
-         * @return void
-         * @static
-         */
-        public static function createPayloadUsing($callback)
-        {
-            //Method inherited from \Illuminate\Queue\Queue 
-            \Illuminate\Queue\DatabaseQueue::createPayloadUsing($callback);
         }
 
         /**
