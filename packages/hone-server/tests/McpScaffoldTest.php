@@ -3,8 +3,13 @@
 declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\ApiToken;
+use ArtisanBuild\BuiltForCloud\AuditActorType;
 use ArtisanBuild\BuiltForCloud\Console\AssertionBurn;
+use ArtisanBuild\BuiltForCloud\Console\ConsoleEntryRefusalReason;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
+use ArtisanBuild\BuiltForCloud\CredentialAuditEvent;
+use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
+use ArtisanBuild\BuiltForCloud\LifecycleEventType;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
@@ -13,7 +18,9 @@ use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RecordTypesTool;
 use ArtisanBuild\HoneServer\Models\RawEvent;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
 it('loads the framework migrations required for delegated assertions', function (): void {
@@ -23,6 +30,21 @@ it('loads the framework migrations required for delegated assertions', function 
 
 it('conforms every advertised tool to the delegated MCP contract', function (): void {
     McpDelegatedTools::assertConforms(HoneMcpServer::class);
+});
+
+it('couples a non-default HONE_MCP_PATH to metadata and the guarded route', function (): void {
+    expect(config('hone-server.mcp.path'))->toBe('/custom-mcp')
+        ->and(config('built-for-cloud.mcp.path'))->toBe('/custom-mcp');
+
+    $this->getJson('/bfc/meta')
+        ->assertOk()
+        ->assertJsonPath('endpoints.mcp', '/custom-mcp');
+
+    $route = Route::getRoutes()->match(Request::create('/custom-mcp', 'POST'));
+
+    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class);
+
+    $this->postJson('/custom-mcp')->assertUnauthorized();
 });
 
 it('lists apps reporting to hone', function (): void {
@@ -137,7 +159,8 @@ it('returns a real tool result for an MCP-purpose delegated assertion', function
 });
 
 it('refuses the same delegated assertion when it is replayed', function (): void {
-    $assertion = honeMcpAssertion();
+    $mintId = 'mint_replay_test';
+    $assertion = honeMcpAssertion(['jti' => $mintId]);
     $headers = ['Authorization' => 'Bearer '.$assertion];
 
     $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), $headers)
@@ -147,18 +170,45 @@ it('refuses the same delegated assertion when it is replayed', function (): void
         ->assertUnauthorized()
         ->assertExactJson(['message' => 'Unauthenticated.']);
 
-    expect(AssertionBurn::query()->count())->toBe(1);
+    $burn = AssertionBurn::query()->sole();
+    $audit = CredentialAuditEvent::query()
+        ->where('event', LifecycleEventType::DeniedAction)
+        ->sole();
+
+    expect($burn->mint_id)->toBe($mintId)
+        ->and($burn->issuer)->toBe('https://scalpels.test')
+        ->and($burn->redeemed_at)->not->toBeNull()
+        ->and($audit->event)->toBe(LifecycleEventType::DeniedAction)
+        ->and($audit->actor_type)->toBe(AuditActorType::CredentialHolder)
+        ->and($audit->actor_ref)->toBe($mintId)
+        ->and($audit->note)->toBe(AuthenticateMcp::AUDIT_NOTE.ConsoleEntryRefusalReason::Replayed->value);
 });
 
-it('refuses a console-entry assertion on the MCP route', function (): void {
+it('refuses an assertion without the MCP purpose on the MCP route', function (mixed $purpose): void {
+    $mintId = 'mint_purpose_test';
+
     $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
-        'Authorization' => 'Bearer '.honeMcpAssertion(['purpose' => 'console-entry']),
+        'Authorization' => 'Bearer '.honeMcpAssertion([
+            'jti' => $mintId,
+            'purpose' => $purpose,
+        ]),
     ])
         ->assertUnauthorized()
         ->assertExactJson(['message' => 'Unauthenticated.']);
 
-    expect(AssertionBurn::query()->count())->toBe(0);
-});
+    $audit = CredentialAuditEvent::query()
+        ->where('event', LifecycleEventType::DeniedAction)
+        ->sole();
+
+    expect(AssertionBurn::query()->count())->toBe(0)
+        ->and($audit->event)->toBe(LifecycleEventType::DeniedAction)
+        ->and($audit->actor_type)->toBe(AuditActorType::CredentialHolder)
+        ->and($audit->actor_ref)->toBe($mintId)
+        ->and($audit->note)->toBe(AuthenticateMcp::AUDIT_NOTE.ConsoleEntryRefusalReason::PurposeMismatch->value);
+})->with([
+    'console-entry purpose' => 'console-entry',
+    'absent purpose' => honeMcpAbsent(),
+]);
 
 it('returns the same real tool result for a TokenRegistry bearer', function (): void {
     ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
@@ -178,22 +228,57 @@ it('returns the same real tool result for a TokenRegistry bearer', function (): 
 });
 
 it('writes no session key while authenticating a delegated assertion', function (): void {
-    $this->withSession(['sentinel' => 'kept'])
-        ->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
-            'Authorization' => 'Bearer '.honeMcpAssertion(),
-        ])
+    $this->withSession(['sentinel' => 'kept']);
+
+    $before = session()->all();
+
+    $response = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion(),
+    ])
         ->assertOk();
 
-    $session = session()->all();
+    $after = session()->all();
 
-    expect($session['sentinel'] ?? null)->toBe('kept')
-        ->and(collect(array_keys($session))->contains(
+    expect(config('session.driver'))->toBe('array')
+        ->and(array_keys($before))->toBe(['_token', 'sentinel'])
+        ->and($after)->toBe($before)
+        ->and(collect(array_keys($after))->contains(
             fn (string $key): bool => str_starts_with($key, 'login_bfc-console_'),
         ))->toBeFalse();
 
     foreach (ConsoleSession::keys() as $key) {
-        expect($session)->not->toHaveKey($key);
+        expect($after)->not->toHaveKey($key);
     }
+
+    $response->assertHeaderMissing('Set-Cookie');
+});
+
+it('never falls through from an assertion-shaped bearer to a resolving registry token', function (): void {
+    $collidingToken = 'v4.public.registry-collision';
+
+    ApiToken::factory()->create([
+        'name' => 'collision',
+        'token_hash' => hash('sha256', $collidingToken),
+    ]);
+    RawEvent::factory()->create(['app' => 'checkout']);
+
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.$collidingToken,
+    ])
+        ->assertUnauthorized()
+        ->assertExactJson(['message' => 'Unauthenticated.']);
+});
+
+it('never falls through from a failed registry bearer to assertion verification', function (): void {
+    $before = CredentialAuditEvent::query()->count();
+
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer unknown-registry-token',
+    ])
+        ->assertUnauthorized()
+        ->assertExactJson(['message' => 'Unauthenticated.']);
+
+    expect(CredentialAuditEvent::query()->count())->toBe($before);
 });
 
 it('denies the fallback token for web mcp requests', function (): void {

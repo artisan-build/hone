@@ -49,7 +49,7 @@ function honeMcpAssertion(array $overrides = []): string
     ]);
 
     $now = CarbonImmutable::now();
-    $claims = array_merge([
+    $claims = array_filter(array_merge([
         'iss' => 'https://scalpels.test',
         'sub' => 'operator_42',
         'aud' => 'https://hone.test',
@@ -60,7 +60,7 @@ function honeMcpAssertion(array $overrides = []): string
         'display_name' => 'Jane Operator',
         'role' => 'admin',
         'purpose' => 'mcp',
-    ], $overrides);
+    ], $overrides), static fn (mixed $value): bool => $value !== honeMcpAbsent());
 
     return (new Builder)
         ->setVersion(new Version4)
@@ -69,6 +69,11 @@ function honeMcpAssertion(array $overrides = []): string
         ->setClaims($claims)
         ->setFooterArray(['kid' => 'hone-test-key'])
         ->toString();
+}
+
+function honeMcpAbsent(): string
+{
+    return '__hone_mcp_absent__';
 }
 
 /**

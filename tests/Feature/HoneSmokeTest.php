@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
+use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
 
 it('boots the headless Hone app root route', function (): void {
     $this->getJson(route('home'))
@@ -40,6 +42,17 @@ it('registers the web MCP route behind bearer authentication', function (): void
 
     $this->postJson($path, [])
         ->assertUnauthorized();
+});
+
+it('keeps the MCP POST route outside every session middleware group', function (): void {
+    $path = (string) config('hone-server.mcp.path', '/mcp');
+    $route = Route::getRoutes()->match(Request::create($path, 'POST'));
+
+    expect(resolve('router')->gatherRouteMiddleware($route))->toBe([
+        ReorderJsonAccept::class,
+        AddWwwAuthenticateHeader::class,
+        AuthenticateMcp::class,
+    ]);
 });
 
 it('registers Hone commands and schedules maintenance', function (): void {

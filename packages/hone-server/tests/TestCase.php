@@ -9,8 +9,10 @@ use ArtisanBuild\HoneServer\HoneServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Mcp\Server\McpServiceProvider;
+use Orchestra\Testbench\Attributes\WithEnv;
 use Orchestra\Testbench\TestCase as Orchestra;
 
+#[WithEnv('HONE_MCP_PATH', '/custom-mcp')]
 abstract class TestCase extends Orchestra
 {
     use RefreshDatabase;
