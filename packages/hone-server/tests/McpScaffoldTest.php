@@ -55,7 +55,7 @@ it('couples a non-default HONE_MCP_PATH to metadata and the guarded route', func
 
     $route = Route::getRoutes()->match(Request::create('/custom-mcp', 'POST'));
 
-    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class);
+    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class.':product');
 
     $this->postJson('/custom-mcp')->assertUnauthorized();
 });

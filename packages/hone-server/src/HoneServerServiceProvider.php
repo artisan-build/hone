@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer;
 
-use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
@@ -90,7 +89,7 @@ final class HoneServerServiceProvider extends ServiceProvider
 
         $this->app->booted(function (): void {
             Mcp::web((string) config('hone-server.mcp.path', '/mcp'), HoneMcpServer::class)
-                ->middleware([AuthenticateMcp::class]);
+                ->middleware('bfc.mcp:product');
         });
 
         if ($this->app->runningInConsole()) {

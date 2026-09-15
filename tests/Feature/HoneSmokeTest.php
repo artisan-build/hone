@@ -38,7 +38,7 @@ it('registers the web MCP route behind bearer authentication', function (): void
     $path = (string) config('hone-server.mcp.path', '/mcp');
     $route = Route::getRoutes()->match(Request::create($path, 'POST'));
 
-    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class);
+    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class.':product');
 
     $this->postJson($path, [])
         ->assertUnauthorized();
@@ -51,7 +51,7 @@ it('keeps the MCP POST route outside every session middleware group', function (
     expect(resolve('router')->gatherRouteMiddleware($route))->toBe([
         ReorderJsonAccept::class,
         AddWwwAuthenticateHeader::class,
-        AuthenticateMcp::class,
+        AuthenticateMcp::class.':product',
     ]);
 });
 

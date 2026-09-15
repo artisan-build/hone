@@ -50,9 +50,9 @@ it('merges package defaults and owns the human auth foundation through the relea
     $rootComposer = json_decode((string) file_get_contents(base_path('composer.json')), true, flags: JSON_THROW_ON_ERROR);
     $serverComposer = json_decode((string) file_get_contents(base_path('packages/hone-server/composer.json')), true, flags: JSON_THROW_ON_ERROR);
 
-    expect(data_get($rootComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.12')
-        ->and(data_get($serverComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.12')
-        ->and(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.12.0')
+    expect(data_get($rootComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.12.1')
+        ->and(data_get($serverComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.12.1')
+        ->and(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.12.1')
         ->and(config('auth.defaults.guard'))->toBe('web')
         ->and(config('auth.guards.web'))->toBe([
             'driver' => 'session',
