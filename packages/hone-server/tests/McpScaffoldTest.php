@@ -17,6 +17,7 @@ use ArtisanBuild\BuiltForCloud\LifecycleEventType;
 use ArtisanBuild\BuiltForCloud\OperatorAbility;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
+use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
@@ -38,6 +39,10 @@ it('loads the framework migrations required for delegated assertions', function 
 
 it('conforms every advertised tool to the delegated MCP contract', function (): void {
     McpDelegatedTools::assertConforms(HoneMcpServer::class);
+});
+
+it('conforms to the package MCP product admission contract', function (): void {
+    McpProductAdmission::assert();
 });
 
 it('couples a non-default HONE_MCP_PATH to metadata and the guarded route', function (): void {
