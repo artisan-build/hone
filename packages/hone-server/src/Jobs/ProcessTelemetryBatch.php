@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Jobs;
 
+use ArtisanBuild\BuiltForCloud\Contracts\SystemAuthorityQueueEntry;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +12,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-final class ProcessTelemetryBatch implements ShouldQueue
+final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEntry
 {
     public ?string $connection = null;
 

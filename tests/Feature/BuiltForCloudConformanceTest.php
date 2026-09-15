@@ -19,6 +19,7 @@ use ArtisanBuild\BuiltForCloud\Commands\OwnershipRemintOwnerTokenCommand;
 use ArtisanBuild\BuiltForCloud\Commands\SigningRootProvisionCommand;
 use ArtisanBuild\BuiltForCloud\Commands\SubjectOffboardCommand;
 use ArtisanBuild\BuiltForCloud\Commands\WarnExpiringCredentialsCommand;
+use ArtisanBuild\BuiltForCloud\Contracts\SystemAuthorityQueueEntry;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\Jobs\DeliverOwnershipWebhook;
 use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
@@ -188,6 +189,7 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
     ));
 
     expect($report->passed)->toBeTrue()
+        ->and(is_a(ProcessTelemetryBatch::class, SystemAuthorityQueueEntry::class, true))->toBeTrue()
         ->and(array_keys($report->families))->toBe(ConsumerConformance::FAMILIES)
         ->and($providerFiles)->toContain(
             app_path('Providers/'.class_basename(AppServiceProvider::class).'.php'),

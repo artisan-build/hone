@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\SubjectType;
+use ArtisanBuild\BuiltForCloud\SystemAuthorityBusFrame;
+use ArtisanBuild\BuiltForCloud\SystemAuthorityContext;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use ArtisanBuild\HoneContracts\Envelope;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
@@ -191,6 +193,28 @@ it('processes telemetry batches into raw events', function (): void {
         ->and($events[1]->payload)->toEqual(['t' => 'request', 'method' => 'GET', 'route' => '/', 'duration_ms' => 34, 'ts' => 1781006402000])
         ->and($events[0]->occurred_at)->not->toBeNull()
         ->and($events[1]->occurred_at)->not->toBeNull();
+});
+
+it('frames telemetry queue processing as package system authority and cleans up afterward', function (): void {
+    $job = new ProcessTelemetryBatch('checkout', null, now()->toAtomString(), []);
+    $context = resolve(SystemAuthorityContext::class);
+    $activeDuringInvocation = false;
+
+    expect($context->active())->toBeFalse();
+
+    $result = resolve(SystemAuthorityBusFrame::class)->handle(
+        $job,
+        function (ProcessTelemetryBatch $invoked) use ($job, $context, &$activeDuringInvocation): string {
+            expect($invoked)->toBe($job);
+            $activeDuringInvocation = $context->active();
+
+            return 'processed';
+        },
+    );
+
+    expect($result)->toBe('processed')
+        ->and($activeDuringInvocation)->toBeTrue()
+        ->and($context->active())->toBeFalse();
 });
 
 it('normalizes raw Nightwatch record type values', function (string $recordType, array $payload, string $expectedKey): void {
