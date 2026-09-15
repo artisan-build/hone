@@ -2,16 +2,22 @@
 
 declare(strict_types=1);
 
-use ArtisanBuild\BuiltForCloud\ApiToken;
+use ArtisanBuild\BuiltForCloud\Actions\RevokeCredential;
 use ArtisanBuild\BuiltForCloud\AuditActorType;
 use ArtisanBuild\BuiltForCloud\Console\AssertionBurn;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleEntryRefusalReason;
+use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
+use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialAuditEvent;
+use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
 use ArtisanBuild\BuiltForCloud\LifecycleEventType;
+use ArtisanBuild\BuiltForCloud\OperatorAbility;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
-use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
@@ -22,6 +28,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+
+uses(WithCredentials::class);
 
 it('loads the framework migrations required for delegated assertions', function (): void {
     expect(Schema::hasTable('bfc_delegated_actors'))->toBeTrue()
@@ -120,8 +128,13 @@ it('fails closed for unauthenticated web mcp requests', function (?string $prese
     'unknown bearer token' => ['wrong-token'],
 ]);
 
-it('accepts an authenticated web mcp initialize request with a database token', function (): void {
-    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
+it('accepts an authenticated web mcp initialize request with an installation-owned package credential', function (): void {
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Mcp,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'hone-mcp-automation',
+        'abilities' => [OperatorAbility::McpRead->value],
+    ]);
 
     $this->postJson((string) config('hone-server.mcp.path'), [
         'jsonrpc' => '2.0',
@@ -136,7 +149,7 @@ it('accepts an authenticated web mcp initialize request with a database token', 
             ],
         ],
     ], [
-        'Authorization' => 'Bearer secret-token',
+        'Authorization' => $credential->bearerHeader(),
     ])
         ->assertOk()
         ->assertJsonPath('result.serverInfo.name', 'Hone');
@@ -210,12 +223,70 @@ it('refuses an assertion without the MCP purpose on the MCP route', function (mi
     'absent purpose' => honeMcpAbsent(),
 ]);
 
-it('returns the same real tool result for a TokenRegistry bearer', function (): void {
-    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
+it('uniformly refuses assertions for another installation and malformed or failed assertions', function (): void {
+    $valid = honeMcpAssertion();
+    $segments = explode('.', $valid);
+    expect($segments)->toHaveCount(4);
+    $lastPayloadCharacter = substr($segments[2], -1);
+    $segments[2] = substr($segments[2], 0, -1).($lastPayloadCharacter === 'A' ? 'B' : 'A');
+    $foreign = honeMcpSigningKey();
+
+    $responses = [
+        $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+            'Authorization' => 'Bearer '.honeMcpAssertion(['aud' => 'https://another-installation.test']),
+        ]),
+        $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+            'Authorization' => 'Bearer v4.public.not-a-valid-assertion',
+        ]),
+        $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+            'Authorization' => 'Bearer '.implode('.', $segments),
+        ]),
+        $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+            'Authorization' => 'Bearer '.honeMcpAssertion([], 'unknown-key', $foreign),
+        ]),
+    ];
+
+    foreach ($responses as $response) {
+        $response->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
+        expect($response->getContent())->toBe($responses[0]->getContent());
+    }
+});
+
+it('keeps both assertion keys valid during rotation and refuses the retired key', function (): void {
+    $previous = honeMcpTestSigningKey();
+    $current = honeMcpSigningKey();
+    $keyring = new ConsoleKeyring;
+    $keyring->add('hone-current-key', $current->getPublicKey()->toHexString());
+    $keyring->activate('hone-current-key');
+
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion([], 'hone-test-key', $previous),
+    ])->assertOk();
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion([], 'hone-current-key', $current),
+    ])->assertOk();
+
+    $keyring->retire('hone-test-key');
+
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion([], 'hone-test-key', $previous),
+    ])->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion([], 'hone-current-key', $current),
+    ])->assertOk();
+});
+
+it('returns the same real tool result for an installation-owned package credential', function (): void {
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Mcp,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'hone-mcp-automation',
+        'abilities' => [OperatorAbility::McpRead->value],
+    ]);
     RawEvent::factory()->create(['app' => 'checkout']);
 
     $response = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
-        'Authorization' => 'Bearer secret-token',
+        'Authorization' => $credential->bearerHeader(),
     ]);
 
     $response->assertOk();
@@ -253,12 +324,17 @@ it('writes no session key while authenticating a delegated assertion', function 
     $response->assertHeaderMissing('Set-Cookie');
 });
 
-it('never falls through from an assertion-shaped bearer to a resolving registry token', function (): void {
+it('never falls through from an assertion-shaped bearer to a resolving unified credential', function (): void {
     $collidingToken = 'v4.public.registry-collision';
 
-    ApiToken::factory()->create([
+    Credential::query()->create([
         'name' => 'collision',
-        'token_hash' => hash('sha256', $collidingToken),
+        'kind' => CredentialKind::Bearer,
+        'purpose' => CredentialPurpose::Mcp,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'assertion-collision',
+        'abilities' => [OperatorAbility::McpRead->value],
+        'secret_hash' => hash('sha256', $collidingToken),
     ]);
     RawEvent::factory()->create(['app' => 'checkout']);
 
@@ -269,7 +345,7 @@ it('never falls through from an assertion-shaped bearer to a resolving registry 
         ->assertExactJson(['message' => 'Unauthenticated.']);
 });
 
-it('never falls through from a failed registry bearer to assertion verification', function (): void {
+it('never falls through from a failed unified credential bearer to assertion verification', function (): void {
     $before = CredentialAuditEvent::query()->count();
 
     $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
@@ -289,31 +365,37 @@ it('denies the fallback token for web mcp requests', function (): void {
     ])->assertUnauthorized();
 });
 
-it('denies an expired token for web mcp requests', function (): void {
-    ApiToken::factory()->create([
+it('denies an expired credential for web mcp requests', function (): void {
+    $credential = $this->mintCredential([
         'name' => 'demo',
-        'token_hash' => hash('sha256', 'secret-token'),
+        'purpose' => CredentialPurpose::Mcp,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'expired-mcp',
+        'abilities' => [OperatorAbility::McpRead->value],
         'expires_at' => now()->subMinute(),
     ]);
 
     $this->postJson((string) config('hone-server.mcp.path'), [], [
-        'Authorization' => 'Bearer secret-token',
+        'Authorization' => $credential->bearerHeader(),
     ])->assertUnauthorized();
 });
 
-it('denies a revoked token for web mcp requests', function (): void {
-    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
-
-    app(TokenRegistry::class)->revoke('demo');
+it('denies a revoked credential for web mcp requests', function (): void {
+    $credential = $this->mintCredential([
+        'name' => 'demo',
+        'purpose' => CredentialPurpose::Mcp,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'revoked-mcp',
+        'abilities' => [OperatorAbility::McpRead->value],
+    ]);
+    app(RevokeCredential::class)($credential->credential->id);
 
     $this->postJson((string) config('hone-server.mcp.path'), [], [
-        'Authorization' => 'Bearer secret-token',
+        'Authorization' => $credential->bearerHeader(),
     ])->assertUnauthorized();
 });
 
 it('does not expose unauthenticated non post mcp methods as a data path', function (string $method): void {
-    ApiToken::factory()->create(['name' => 'demo', 'token_hash' => hash('sha256', 'secret-token')]);
-
     // Laravel MCP registers inert GET/DELETE responders for method negotiation; they must not return data.
     $response = $this->json($method, (string) config('hone-server.mcp.path'));
 
