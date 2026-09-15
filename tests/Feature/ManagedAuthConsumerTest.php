@@ -328,7 +328,7 @@ it('contains account authority while installation-owned Hone credentials survive
         };
     });
 
-    $transitions = app(ManagedTransitions::class);
+    $transitions = resolve(ManagedTransitions::class);
     $transition = $transitions->prepare($owner, ManagedTransitionDirection::Exit);
     $transition = $transitions->fetchRoster($transition);
     $transition = $transitions->propose($transition, [[
@@ -348,9 +348,9 @@ it('contains account authority while installation-owned Hone credentials survive
         ->and($ingestCredential->refresh()->revoked_at)->toBeNull()
         ->and($mcpCredential->refresh()->revoked_at)->toBeNull()
         ->and(DB::table('sessions')->where('id', 'managed-owner-session')->exists())->toBeFalse()
-        ->and(app(CredentialResolver::class)->resolve(CredentialKind::Bearer, $accountSecret))->toBeNull()
-        ->and(app(CredentialResolver::class)->resolve(CredentialKind::Bearer, $ingestSecret)?->id)->toBe($ingestCredential->id)
-        ->and(app(CredentialResolver::class)->resolve(CredentialKind::Bearer, $mcpSecret)?->id)->toBe($mcpCredential->id);
+        ->and(resolve(CredentialResolver::class)->resolve(CredentialKind::Bearer, $accountSecret))->toBeNull()
+        ->and(resolve(CredentialResolver::class)->resolve(CredentialKind::Bearer, $ingestSecret)?->id)->toBe($ingestCredential->id)
+        ->and(resolve(CredentialResolver::class)->resolve(CredentialKind::Bearer, $mcpSecret)?->id)->toBe($mcpCredential->id);
 
     Queue::fake();
     $this->withHeader('Authorization', 'Bearer '.$ingestSecret)
