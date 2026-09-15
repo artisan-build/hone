@@ -10,15 +10,17 @@ store, roll up, prune, and serve over MCP.
 
 ## What it provides
 
-- **Ingest endpoint** — validates the per-app `HONE_TOKEN` against the registry, resolves the
-  source app, version-checks the envelope (parse if known, **4xx if newer**), and enqueues
-  raw payloads to Redis. Returns fast; no synchronous DB writes.
+- **Ingest endpoint** — validates an installation-owned package credential for `hone.ingest`,
+  derives the source app from the credential subject, version-checks the envelope (parse if
+  known, **4xx if newer**), and enqueues raw payloads to Redis. Returns fast; no synchronous
+  DB writes.
 - **Capabilities endpoint** — advertises the envelope majors this server supports, so a
   client's `hone:update` can check compatibility.
-- **Worker** — drains Redis and writes raw events to Postgres, tagged by
-  `(app, record_type, deploy, occurred_at)`.
-- **App registry** — source apps plus hashed tokens, config-file driven from `.env`. Adding
-  an app is a config entry plus a deploy.
+- **Worker** — drains Redis and writes raw events to Postgres with
+  `(app, record_type, deploy, occurred_at)` dimensions, where `app` comes from the credential
+  identity.
+- **Package credentials** — installation-owned credentials use separate `hone.ingest`
+  consumption and `hone.mcp` MCP purposes; issuing or rotating one does not require a deploy.
 - **Rollups & prune** — scheduled jobs that compute percentiles from raw data (before it is
   pruned) and persist daily aggregates that survive pruning.
 - **MCP server** — a read-only, multi-app-aware surface a coding agent queries.
