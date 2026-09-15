@@ -51,8 +51,9 @@ use ArtisanBuild\HoneServer\Mcp\Tools\SlowQueriesTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowRequestsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\TopUsersTool;
 use Composer\InstalledVersions;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(ContractAssertions::class);
+uses(ContractAssertions::class, RefreshDatabase::class);
 
 it('passes the package consumer conformance spec for the complete Hone consumer', function (): void {
     $packageRoot = InstalledVersions::getInstallPath('artisan-build/built-for-cloud');
