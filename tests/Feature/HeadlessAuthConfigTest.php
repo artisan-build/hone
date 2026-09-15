@@ -1,107 +1,92 @@
 <?php
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Routing\Route as RoutingRoute;
+declare(strict_types=1);
+
+use ArtisanBuild\BuiltForCloud\AppPurposeRegistry;
+use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\Testing\ThinHostConformance;
+use ArtisanBuild\BuiltForCloud\User;
+use Composer\InstalledVersions;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 
-/** /bfc/meta reads the `ownership` table, so this file cannot rely on another test having migrated. */
-uses(RefreshDatabase::class);
+it('owns the exact Hone D-UI-3 application overlay', function (): void {
+    /** @var array<string, mixed> $appConfig */
+    $appConfig = require config_path('built-for-cloud.php');
 
-/*
-|--------------------------------------------------------------------------
-| Headless auth contract
-|--------------------------------------------------------------------------
-|
-| Hone authenticates source apps with bearer tokens only. It has no session
-| users, no users table, and no user model — commit 1a4cd48 stripped the
-| users/passkeys/2FA migrations on purpose.
-|
-| Two traps live here, and both are easy to reintroduce:
-|
-| 1. `auth.defaults.guard` must still name a resolvable guard. Laravel's
-|    ThrottleRequests::resolveRequestSignature() calls $request->user(), so
-|    every `throttle:`-protected Built for Cloud route (/bfc/meta, ownership
-|    claim, onboarding exchange/verify) 500s with "Auth guard [] is not
-|    defined" the moment the default is set to null. Headless does NOT mean
-|    "no default guard".
-|
-| 2. `auth.guards` / `auth.providers` cannot be emptied from this config file.
-|    LoadConfiguration::mergeableOptions() deep-merges the framework defaults
-|    back in, so `'providers' => []` still yields the eloquent/App\Models\User
-|    provider. Declaring a `database` provider here (as the ^0.3 convergence
-|    did) overwrites that default with one that returns GenericUser, which can
-|    never satisfy Built for Cloud's `bfc.admin` middleware and leaves
-|    `create-admin` with no model to resolve.
-|
-*/
-
-it('keeps a resolvable default guard so throttled routes can sign requests', function (): void {
-    expect(config('auth.defaults.guard'))->toBe('web')
-        ->and(config('auth.defaults.passwords'))->toBeNull();
-
-    /** Must not throw — this is what ThrottleRequests depends on. */
-    expect(Auth::check())->toBeFalse();
-    expect(Auth::user())->toBeNull();
+    expect($appConfig)->toBe([
+        'manifest' => [
+            'name' => 'Hone',
+            'slug' => 'hone',
+            'description' => 'Self-hosted, MCP-only LLM-facing telemetry for Laravel.',
+            'icon' => 'https://raw.githubusercontent.com/artisan-build/hone/main/public/favicon.svg',
+            'product_url' => 'https://scalpels.app/products/hone',
+        ],
+        'credentials' => [
+            'guard' => 'bfc',
+            'declaration' => null,
+            'session_guard' => null,
+            'app_purposes' => [
+                'hone.ingest' => 'consumption',
+                'hone.mcp' => 'mcp',
+            ],
+        ],
+        'ui' => [
+            'landing_page' => false,
+            'member_management' => false,
+            'personal_credentials' => false,
+            'installation_credentials' => false,
+            'session_management' => false,
+            'managed_transitions' => false,
+            'credential_purposes' => ['hone.ingest', 'hone.mcp'],
+        ],
+    ])->and(app(AppPurposeRegistry::class)->purpose('hone.ingest'))->toBe(CredentialPurpose::Consumption)
+        ->and(app(AppPurposeRegistry::class)->purpose('hone.mcp'))->toBe(CredentialPurpose::Mcp);
 });
 
-it('serves throttled Built for Cloud routes without resolving a user', function (): void {
-    $this->getJson('/bfc/meta')->assertOk();
+it('merges package defaults and owns the human auth foundation through the released provider', function (): void {
+    $rootComposer = json_decode((string) file_get_contents(base_path('composer.json')), true, flags: JSON_THROW_ON_ERROR);
+    $serverComposer = json_decode((string) file_get_contents(base_path('packages/hone-server/composer.json')), true, flags: JSON_THROW_ON_ERROR);
 
-    /** A client error is expected; a 500 means the default guard stopped resolving. */
-    $this->postJson('/bfc/onboarding/verify')->assertClientError();
+    expect(data_get($rootComposer, 'require.artisan-build/built-for-cloud'))->toBe('0.10.0')
+        ->and(data_get($serverComposer, 'require.artisan-build/built-for-cloud'))->toBe('0.10.0')
+        ->and(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.10.0')
+        ->and(config('auth.defaults.guard'))->toBe('web')
+        ->and(config('auth.guards.web'))->toBe([
+            'driver' => 'session',
+            'provider' => 'users',
+        ])->and(config('auth.providers.users'))->toBe([
+            'driver' => 'eloquent',
+            'model' => User::class,
+        ])->and(app()->getLoadedProviders())->toHaveKey(BuiltForCloudServiceProvider::class, true)
+        ->and(ThinHostConformance::configurationArtifacts((array) config('auth')))->toBe([])
+        ->and(file_exists(config_path('auth.php')))->toBeFalse();
 });
 
-it('never wires the users provider to the database driver', function (): void {
-    /** GenericUser is not an Eloquent model, so `bfc.admin` would reject every caller. */
-    expect(config('auth.providers.users.driver'))->toBe('eloquent');
-});
+it('runs fresh package-owned migrations and resolves package users through the web guard', function (): void {
+    config()->set('database.default', 'sqlite');
+    config()->set('database.connections.sqlite.database', ':memory:');
 
-it('declares no session guard or provider of its own in config/auth.php', function (): void {
-    $config = require config_path('auth.php');
+    expect(Artisan::call('migrate:fresh', [
+        '--database' => 'sqlite',
+        '--path' => 'vendor/artisan-build/built-for-cloud/database/migrations',
+        '--force' => true,
+    ]))->toBe(0)
+        ->and(Schema::hasTable('users'))->toBeTrue()
+        ->and(Schema::hasTable('bfc_authority'))->toBeTrue()
+        ->and(Schema::hasTable('credentials'))->toBeTrue()
+        ->and(Schema::hasColumn('users', 'normalized_email'))->toBeTrue()
+        ->and(Schema::hasColumn('credentials', 'purpose'))->toBeTrue()
+        ->and(glob(database_path('migrations/*users*')) ?: [])->toBe([])
+        ->and(class_exists('App\\Models\\User'))->toBeFalse()
+        ->and(ThinHostConformance::sourceArtifacts(base_path()))->toBe([]);
 
-    expect($config['guards'])->toBe([])
-        ->and($config['providers'])->toBe([]);
-});
+    $user = createBuiltForCloudUser();
+    $provider = Auth::guard('web')->getProvider();
+    $retrieved = $provider->retrieveByCredentials(['email' => $user->email]);
 
-it('exposes no Hone-owned route behind session authentication middleware', function (): void {
-    $offenders = collect(Route::getRoutes())
-        ->reject(fn (RoutingRoute $route): bool => str_starts_with($route->uri(), 'bfc/'))
-        ->filter(fn (RoutingRoute $route): bool => collect($route->gatherMiddleware())
-            ->contains(fn (mixed $middleware): bool => is_string($middleware) && in_array(
-                $middleware,
-                ['auth', 'bfc.auth', 'bfc.admin', 'auth.session', 'auth.basic'],
-                true,
-            )))
-        ->map(fn (RoutingRoute $route): string => $route->uri())
-        ->values()
-        ->all();
-
-    expect($offenders)->toBe([]);
-});
-
-it('keeps Built for Cloud personal credential routes unreachable without a local user', function (string $method, string $path): void {
-    $response = $this->json($method, $path);
-
-    $response->assertUnauthorized();
-})->with([
-    'list credentials' => ['GET', '/bfc/me/credentials'],
-    'create credential' => ['POST', '/bfc/me/credentials'],
-    'delete credential' => ['DELETE', '/bfc/me/credentials/1'],
-]);
-
-it('has no user model, so nothing may depend on resolving one', function (): void {
-    expect(class_exists('App\Models\User'))->toBeFalse();
-});
-
-it('keeps serving MCP without advertising delegated assertions when that declaration is disabled', function (): void {
-    config()->set('built-for-cloud.mcp.delegated', false);
-
-    $response = $this->getJson('/bfc/meta')->assertOk();
-    $capabilities = $response->json('capabilities');
-
-    expect($capabilities)->toContain('mcp-serve')
-        ->not->toContain('mcp-delegated');
-
-    $response->assertJsonPath('endpoints.mcp', (string) config('hone-server.mcp.path'));
+    expect($retrieved)->toBeInstanceOf(User::class)
+        ->and($provider->validateCredentials($retrieved, ['password' => 'test-password']))->toBeTrue();
 });

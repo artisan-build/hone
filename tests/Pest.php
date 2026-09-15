@@ -1,5 +1,7 @@
 <?php
 
+use ArtisanBuild\BuiltForCloud\User;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 /*
@@ -26,7 +28,15 @@ pest()->extend(TestCase::class)->in('Feature');
 |
 */
 
-//
+/** @param array<string, mixed> $attributes */
+function createBuiltForCloudUser(array $attributes = []): User
+{
+    return User::query()->create(array_replace([
+        'name' => 'Test User',
+        'email' => 'user@example.test',
+        'password' => Hash::make('test-password'),
+    ], $attributes));
+}
 
 /*
 |--------------------------------------------------------------------------

@@ -4,31 +4,32 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "599248e91a5c7693d539f425e5edc34d",
+    "content-hash": "5eb88364ac8f79e0a45edc3f17e752a7",
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.7.0",
+            "version": "v0.10.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "aadbdf9ffd4b8e5b23d098521fbba86e85ccfa0e"
+                "reference": "1422bf531e902e3d82609fbc1afa03f6552ace75"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/aadbdf9ffd4b8e5b23d098521fbba86e85ccfa0e",
-                "reference": "aadbdf9ffd4b8e5b23d098521fbba86e85ccfa0e",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/1422bf531e902e3d82609fbc1afa03f6552ace75",
+                "reference": "1422bf531e902e3d82609fbc1afa03f6552ace75",
                 "shasum": ""
             },
             "require": {
-                "illuminate/auth": "^13.17",
-                "illuminate/console": "^13.17",
-                "illuminate/contracts": "^13.17",
-                "illuminate/database": "^13.17",
-                "illuminate/notifications": "^13.17",
-                "illuminate/process": "^13.17",
-                "illuminate/routing": "^13.17",
-                "illuminate/support": "^13.17",
+                "composer/semver": "^3.4",
+                "illuminate/auth": "^13.24",
+                "illuminate/console": "^13.24",
+                "illuminate/contracts": "^13.24",
+                "illuminate/database": "^13.24",
+                "illuminate/notifications": "^13.24",
+                "illuminate/process": "^13.24",
+                "illuminate/routing": "^13.24",
+                "illuminate/support": "^13.24",
                 "paragonie/paseto": "^3.5",
                 "paragonie/sodium_compat": "^1|^2",
                 "php": "^8.3"
@@ -70,9 +71,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.7.0"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.10.0"
             },
-            "time": "2026-09-04T05:39:59+00:00"
+            "time": "2026-09-15T05:30:02+00:00"
         },
         {
             "name": "artisan-build/hone-contracts",
@@ -133,10 +134,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/hone-server",
-                "reference": "e73f3de1afae81a5878abfc4018ea74cbe3155bf"
+                "reference": "e38d7a9a9926876ca467d195221638eef6164c1a"
             },
             "require": {
-                "artisan-build/built-for-cloud": "^0.7",
+                "artisan-build/built-for-cloud": "0.10.0",
                 "artisan-build/hone-contracts": "^1.0",
                 "illuminate/contracts": "^13.0",
                 "illuminate/database": "^13.0",
@@ -474,6 +475,83 @@
                 }
             ],
             "time": "2024-02-09T16:56:22+00:00"
+        },
+        {
+            "name": "composer/semver",
+            "version": "3.4.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/composer/semver.git",
+                "reference": "198166618906cb2de69b95d7d47e5fa8aa1b2b95"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/composer/semver/zipball/198166618906cb2de69b95d7d47e5fa8aa1b2b95",
+                "reference": "198166618906cb2de69b95d7d47e5fa8aa1b2b95",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^5.3.2 || ^7.0 || ^8.0"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^1.11",
+                "symfony/phpunit-bridge": "^3 || ^7"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "3.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Composer\\Semver\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nils Adermann",
+                    "email": "naderman@naderman.de",
+                    "homepage": "http://www.naderman.de"
+                },
+                {
+                    "name": "Jordi Boggiano",
+                    "email": "j.boggiano@seld.be",
+                    "homepage": "http://seld.be"
+                },
+                {
+                    "name": "Rob Bast",
+                    "email": "rob.bast@gmail.com",
+                    "homepage": "http://robbast.nl"
+                }
+            ],
+            "description": "Semver library that offers utilities, version constraint parsing and validation.",
+            "keywords": [
+                "semantic",
+                "semver",
+                "validation",
+                "versioning"
+            ],
+            "support": {
+                "irc": "ircs://irc.libera.chat:6697/composer",
+                "issues": "https://github.com/composer/semver/issues",
+                "source": "https://github.com/composer/semver/tree/3.4.4"
+            },
+            "funding": [
+                {
+                    "url": "https://packagist.com",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/composer",
+                    "type": "github"
+                }
+            ],
+            "time": "2025-08-20T19:15:30+00:00"
         },
         {
             "name": "defuse/php-encryption",
