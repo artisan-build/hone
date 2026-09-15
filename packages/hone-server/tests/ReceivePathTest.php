@@ -2,30 +2,24 @@
 
 declare(strict_types=1);
 
-use ArtisanBuild\BuiltForCloud\ApiToken;
-use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\SubjectType;
+use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use ArtisanBuild\HoneContracts\Envelope;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use Illuminate\Support\Facades\Queue;
 
-beforeEach(function (): void {
-    config()->set('built-for-cloud.fallback_token', null);
-
-    ApiToken::factory()->create(['name' => 'checkout', 'token_hash' => hash('sha256', 'secret-token')]);
-    ApiToken::factory()->create(['name' => 'billing', 'token_hash' => hash('sha256', 'billing-token')]);
-});
-
-it('resolves bearer tokens to registered app ids', function (): void {
-    $registry = app(TokenRegistry::class);
-
-    expect($registry->resolve('secret-token'))->toBe('checkout')
-        ->and($registry->resolve('wrong'))->toBeNull();
-});
+uses(WithCredentials::class);
 
 it('accepts a valid envelope and dispatches the telemetry batch without writing synchronously', function (): void {
     Queue::fake();
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'checkout',
+    ]);
 
     $envelope = Envelope::make(
         app: 'forged-app',
@@ -36,7 +30,7 @@ it('accepts a valid envelope and dispatches the telemetry batch without writing 
         ],
     );
 
-    $this->withHeader('Authorization', 'Bearer secret-token')
+    $this->actingAsCredential($credential)
         ->postJson('/ingest', $envelope->toArray())
         ->assertStatus(202);
 
@@ -68,10 +62,59 @@ it('rejects unknown bearer tokens without dispatching', function (): void {
     Queue::assertNothingPushed();
 });
 
+it('rejects credentials outside the installation-owned ingest purpose without dispatching', function (array $attributes): void {
+    Queue::fake();
+    $credential = $this->mintCredential($attributes);
+
+    $this->actingAsCredential($credential)
+        ->postJson('/ingest', Envelope::make('checkout', null, '2026-06-09T12:00:00+00:00', [])->toArray())
+        ->assertUnauthorized();
+
+    Queue::assertNothingPushed();
+    expect($credential->credential->refresh()->last_used_at)->toBeNull();
+})->with([
+    'MCP purpose' => [[
+        'purpose' => CredentialPurpose::Mcp,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'checkout',
+    ]],
+    'application subject' => [[
+        'purpose' => CredentialPurpose::SystemDeployment,
+        'subject_type' => SubjectType::Application,
+        'subject_ref' => 'checkout',
+    ]],
+]);
+
+it('rejects account-bound and revoked ingest credentials without dispatching', function (bool $revoked): void {
+    Queue::fake();
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'checkout',
+        'user_id' => $revoked ? null : 'account-user',
+        'revoked_at' => $revoked ? now() : null,
+    ]);
+
+    $this->actingAsCredential($credential)
+        ->postJson('/ingest', Envelope::make('checkout', null, '2026-06-09T12:00:00+00:00', [])->toArray())
+        ->assertUnauthorized();
+
+    Queue::assertNothingPushed();
+    expect($credential->credential->refresh()->last_used_at)->toBeNull();
+})->with([
+    'account-bound' => [false],
+    'revoked' => [true],
+]);
+
 it('rejects newer envelope versions with an upgrade message without dispatching', function (): void {
     Queue::fake();
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'checkout',
+    ]);
 
-    $this->withHeader('Authorization', 'Bearer secret-token')
+    $this->actingAsCredential($credential)
         ->postJson('/ingest', [
             'envelope_version' => Envelope::VERSION + 1,
             'app' => 'checkout',
@@ -85,8 +128,13 @@ it('rejects newer envelope versions with an upgrade message without dispatching'
 
 it('rejects malformed envelope bodies without dispatching', function (): void {
     Queue::fake();
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'checkout',
+    ]);
 
-    $this->withHeader('Authorization', 'Bearer secret-token')
+    $this->actingAsCredential($credential)
         ->postJson('/ingest', ['nope' => true])
         ->assertStatus(422);
 
@@ -95,10 +143,15 @@ it('rejects malformed envelope bodies without dispatching', function (): void {
 
 it('rejects non-decodable json without dispatching', function (): void {
     Queue::fake();
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'checkout',
+    ]);
 
     $this->call('POST', '/ingest', [], [], [], [
         'CONTENT_TYPE' => 'application/json',
-        'HTTP_AUTHORIZATION' => 'Bearer secret-token',
+        'HTTP_AUTHORIZATION' => $credential->bearerHeader(),
     ], '{not json')
         ->assertStatus(422);
 
@@ -156,6 +209,11 @@ it('normalizes raw Nightwatch record type values', function (string $recordType,
 it('persists after response on sync queues using the token app instead of envelope app', function (): void {
     config()->set('queue.default', 'sync');
     config()->set('hone-server.queue', 'sync');
+    $credential = $this->mintCredential([
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'checkout',
+    ]);
 
     $envelope = Envelope::make(
         app: 'forged-app',
@@ -167,7 +225,7 @@ it('persists after response on sync queues using the token app instead of envelo
         ],
     );
 
-    $this->withHeader('Authorization', 'Bearer secret-token')
+    $this->actingAsCredential($credential)
         ->postJson('/ingest', $envelope->toArray())
         ->assertStatus(202);
 
