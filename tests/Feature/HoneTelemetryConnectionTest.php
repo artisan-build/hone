@@ -29,5 +29,5 @@ it('keeps telemetry and app tables side by side on one connection', function ():
         ? substr($table, (int) strrpos($table, '.') + 1)
         : $table, $tables);
 
-    expect($tables)->toContain('raw_events', 'samples', 'aggregates', 'api_tokens');
+    expect($tables)->toContain('raw_events', 'samples', 'aggregates', 'credentials');
 });

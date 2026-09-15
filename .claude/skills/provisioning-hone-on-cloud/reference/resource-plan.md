@@ -61,12 +61,12 @@ for kv in \
 done
 # Retention defaults (72/90/7) and HONE_MCP_PATH (/mcp) match config defaults — set only to override.
 
-# 8. Deploy (auto-runs migrations, creating api_tokens) + poll
+# 8. Deploy (auto-runs migrations, creating the package credential store) + poll
 cloud deploy hone-<client> main --no-wait -n                      # returns deployment_id
 cloud deployment:get <deployment_id> --json -n                    # poll status until deployment.succeeded
 
-# 9. First source-app token (built-for-cloud — no env var, no redeploy). Works for ingest AND MCP.
-cloud command:run <env-id> --cmd="php artisan token:create <source-app-id>" -n   # prints plaintext token once
+# 9. First source-app ingest credential (built-for-cloud — reveal once, no redeploy).
+cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation '<source-installation-ref>' --kind=bearer --purpose=consumption --name='hone-ingest-<source-app-id>' --local" -n
 ```
 
 ## Environment variable checklist
@@ -80,10 +80,11 @@ which is the managed queue. Cloud injects `DB_*`/`REDIS_*` at deploy from the at
 | `HONE_DB_HOST/PORT/DATABASE/USERNAME/PASSWORD` | **unset** — telemetry shares the app database; set only to isolate it onto a separate one |
 | `HONE_MCP_PATH` | `/mcp` (default — set only to override) |
 | `HONE_RETENTION_RAW_HOURS` / `_AGGREGATE_DAYS` / `_SAMPLE_DAYS` | `72` / `90` / `7` (defaults) |
-| `FALLBACK_TOKEN` | *optional* single bootstrap token (ingest + MCP). Prefer per-app `token:create` tokens; delete it for production. |
 | `NIGHTWATCH_DEPLOY` | the deployed short SHA (build step) — for the *deploy* dimension |
 
-Bearer tokens (ingest + MCP) are managed by `artisan-build/built-for-cloud`: per-app rows in `api_tokens`
-issued with `token:create` (step 9), plus the optional `FALLBACK_TOKEN` above. No token env var to set.
+Bearer credentials are managed by `artisan-build/built-for-cloud` in the package-owned `credentials`
+table. Step 9 creates an installation-owned `hone.ingest` credential mapped to `consumption`.
+MCP automation requires a separate installation-owned `hone.mcp` credential mapped to `mcp`.
+There is no shared or environment-fallback credential.
 
 Do **not** set `NIGHTWATCH_TOKEN` and do **not** enable Cloud's Nightwatch integration on this app.

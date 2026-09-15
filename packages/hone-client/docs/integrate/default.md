@@ -43,7 +43,7 @@ For a source app hosted on Laravel Cloud or Forge, use Scalpels' `connect_site(t
 For any other host, obtain the credential from the customer's own Hone deployment. Hone has no credential UI; ask an authorized operator to run this command on that deployment:
 
 ```bash
-php artisan token:create <app-id> --local
+php artisan bfc:credential:mint installation '<source-installation-ref>' --kind=bearer --purpose=consumption --name='hone-ingest-<app-id>' --local
 ```
 
 Run that command inside the intended Hone deployment; `--local` prevents Built for Cloud from selecting another remote environment. The command reveals the credential once and stores only its hash. Have the operator place it directly into the source app's secret environment as `HONE_TOKEN`, or enter it into the hidden token prompt from `php artisan hone:install`. Do not pass the token through chat, commit it, include it in a command argument, or return it from a tool. Never print it while verifying the integration.

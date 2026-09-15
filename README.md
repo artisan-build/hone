@@ -127,7 +127,7 @@ opt-in (see `HONE_DB_*` below).
 > (Claude Code, etc.) and ask it to *"provision a Hone instance on Laravel Cloud."* The skill
 > sizes the environment as a small/medium/large tier, and **only after you confirm** uses the
 > `cloud` CLI to provision Postgres, Redis, a web instance, a managed queue, and the
-> scheduler, wire the `HONE_*` config, deploy, migrate, and issue the first source-app token.
+> scheduler, wire the `HONE_*` config, deploy, migrate, and issue the first source-app credential.
 > It specializes the Cloud CLI's generic `deploying-laravel-cloud` skill. The manual steps
 > below are the same thing by hand.
 
@@ -142,12 +142,13 @@ Required production environment:
   `HONE_DB_DATABASE` moves telemetry to another database on the same server. Hone's telemetry
   schema is Postgres-only (`jsonb` columns, `jsonb_typeof()` at rollup), so both the app
   connection and any telemetry override must be Postgres.
-- Bearer tokens for ingest and registry-token MCP access are managed by
-  [`artisan-build/built-for-cloud`](https://github.com/artisan-build/built-for-cloud): issue
-  per-app tokens with `php artisan token:create <name>` (stored hashed in `api_tokens`), or set
-  a single `FALLBACK_TOKEN` for ingest bootstrap. Any resolving `api_tokens` entry may both ingest
-  telemetry and read it back over MCP. MCP also accepts a Scalpels-issued delegated assertion
-  whose signed `purpose` claim is `mcp`; Hone accepts these assertions but does not issue them.
+- Bearer credentials are managed by
+  [`artisan-build/built-for-cloud`](https://github.com/artisan-build/built-for-cloud). Each source
+  app receives an installation-owned `hone.ingest` credential, mapped to package purpose
+  `consumption`. MCP automation uses a separate installation-owned `hone.mcp` credential, mapped
+  to `mcp`; credentials are never shared across those purposes. MCP also accepts a Scalpels-issued
+  delegated assertion whose signed `purpose` claim is `mcp`; Hone accepts these assertions but
+  does not issue them.
 - `HONE_MCP_PATH`; the default MCP HTTP path is `/mcp`.
 - `QUEUE_CONNECTION=redis` and `HONE_QUEUE_CONNECTION=redis` so accepted ingest batches
   are processed by Redis workers.
@@ -189,18 +190,18 @@ current. You get the self-hosted guarantee without the operational overhead.
 
 ## Adding a source app
 
-On the Hone server, issue a source application token with the
+On the Hone server, issue a source application credential with the
 [`artisan-build/built-for-cloud`](https://github.com/artisan-build/built-for-cloud) command:
 
 ```shell
-php artisan token:create <app-id>
+php artisan bfc:credential:mint installation '<source-installation-ref>' --kind=bearer --purpose=consumption --name='hone-ingest-<app-id>' --local
 ```
 
-The command generates the plaintext token, prints it once, and stores only its hash in the
-`api_tokens` table — there is no env var to edit and no redeploy needed. Rotate, revoke, list,
-and inspect usage with `token:rotate`, `token:revoke`, `token:list`, and `token:usage`. For a
-low-ceremony bootstrap you can instead set a single `FALLBACK_TOKEN` in the environment (delete
-it and use per-app tokens for production).
+The command reveals the plaintext bearer once and stores only its hash in the package-owned
+`credentials` table. Place it directly into the source app's secret environment as `HONE_TOKEN`;
+do not copy it into chat, repository files, or reports. Use the package's
+`bfc:credential:list`, `bfc:credential:rotate`, and `bfc:credential:revoke` commands with
+`--local` for lifecycle management. There is no environment fallback.
 
 In the source Laravel app, install Nightwatch and the Hone client:
 
@@ -227,9 +228,10 @@ major constraint in `composer.json`. No `NIGHTWATCH_TOKEN` is needed for Hone. S
 ## Connecting a coding agent (MCP)
 
 The HTTP MCP server is registered at `HONE_MCP_PATH` and requires an
-`Authorization: Bearer <credential>` header. The credential may be any resolving `api_tokens`
-entry issued with `token:create`, or a Scalpels-issued delegated assertion carrying the signed
-claim `purpose: mcp`. Hone verifies and accepts delegated assertions but never issues them.
+`Authorization: Bearer <credential>` header. Use a distinct package-issued `hone.mcp`
+credential, mapped to purpose `mcp`, or a Scalpels-issued delegated assertion carrying the signed
+claim `purpose: mcp`. A `hone.ingest` credential cannot access MCP. Hone verifies and accepts
+delegated assertions but never issues them.
 Requests without a valid credential fail closed with `401`. `/bfc/meta` advertises the mounted
 path through `endpoints.mcp` and the `mcp-serve` and `mcp-delegated` capabilities.
 

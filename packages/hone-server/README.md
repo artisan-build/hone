@@ -51,10 +51,11 @@ misses a field," never an ingest failure.
 
 ## MCP server
 
-- **Transport:** Streamable HTTP accepting a resolving `TokenRegistry` bearer or a
-  Scalpels-issued delegated assertion whose signed `purpose` claim is `mcp`. Hone accepts
-  delegated assertions but does not issue them. `/bfc/meta` advertises `mcp-serve`,
-  `mcp-delegated`, and the mounted endpoint path.
+- **Transport:** Streamable HTTP accepting a package-issued `hone.mcp` bearer credential or a
+  Scalpels-issued delegated assertion whose signed `purpose` claim is `mcp`. The MCP
+  credential is distinct from every `hone.ingest` credential. Hone accepts delegated assertions
+  but does not issue them. `/bfc/meta` advertises `mcp-serve`, `mcp-delegated`, and the
+  mounted endpoint path.
 - **Read-only and multi-app aware:** every tool takes an optional `app` filter and otherwise
   aggregates across the environment's apps.
 - **Tools (v1):** `slow_requests`, `slow_queries`, `slow_jobs`, `slow_outgoing_requests`,

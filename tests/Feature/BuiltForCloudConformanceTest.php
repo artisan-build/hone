@@ -194,3 +194,42 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
             base_path('packages/hone-server/src/'.class_basename(HoneServerServiceProvider::class).'.php'),
         );
 });
+
+it('keeps supported credential configuration and guidance on fixed-purpose package commands', function (): void {
+    $supportedFiles = [
+        base_path('.claude/skills/provisioning-hone-on-cloud/SKILL.md'),
+        base_path('.claude/skills/provisioning-hone-on-cloud/reference/resource-plan.md'),
+        base_path('.env.example'),
+        base_path('README.md'),
+        base_path('packages/hone-client/docs/integrate/default.md'),
+        base_path('packages/hone-client/skills/configuring-hone-client/SKILL.md'),
+        base_path('packages/hone-server/README.md'),
+        base_path('packages/hone-server/config/hone-server.php'),
+    ];
+
+    foreach ($supportedFiles as $path) {
+        $contents = file_get_contents($path);
+
+        expect($contents)
+            ->toBeString()
+            ->not->toContain(
+                'FALLBACK_TOKEN',
+                'HONE_APP_TOKENS',
+                'HONE_MCP_TOKEN',
+                'TokenRegistry',
+                'ApiToken',
+                'api_tokens',
+                'token:create',
+                'token:rotate',
+                'token:revoke',
+                'token:list',
+                'token:usage',
+            );
+
+        preg_match_all('/php artisan bfc:credential:(?:mint|rotate|revoke)[^\n\x60]*/', $contents, $stateChangingCommands);
+
+        foreach ($stateChangingCommands[0] as $command) {
+            expect($command)->toContain('--local');
+        }
+    }
+});
