@@ -37,7 +37,7 @@ beforeEach(function (): void {
     );
 
     Route::middleware('auth:bfc')->get('/h1/credential-authority-probe', static fn (): array => [
-        'system_authority' => app(SystemAuthorityContext::class)->active(),
+        'system_authority' => resolve(SystemAuthorityContext::class)->active(),
     ]);
     Route::middleware('bfc.ability:'.OperatorAbility::CredentialRead->value)
         ->get('/h1/control-plane-probe', static fn (): array => ['authorized' => true]);

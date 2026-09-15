@@ -42,8 +42,8 @@ it('owns the exact Hone D-UI-3 application overlay', function (): void {
             'managed_transitions' => false,
             'credential_purposes' => ['hone.ingest', 'hone.mcp'],
         ],
-    ])->and(app(AppPurposeRegistry::class)->purpose('hone.ingest'))->toBe(CredentialPurpose::Consumption)
-        ->and(app(AppPurposeRegistry::class)->purpose('hone.mcp'))->toBe(CredentialPurpose::Mcp);
+    ])->and(resolve(AppPurposeRegistry::class)->purpose('hone.ingest'))->toBe(CredentialPurpose::Consumption)
+        ->and(resolve(AppPurposeRegistry::class)->purpose('hone.mcp'))->toBe(CredentialPurpose::Mcp);
 });
 
 it('merges package defaults and owns the human auth foundation through the released provider', function (): void {
