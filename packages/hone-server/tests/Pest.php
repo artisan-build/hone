@@ -19,16 +19,22 @@ function honeMcpTestSigningKey(): AsymmetricSecretKey
         return app('hone.testing.mcp-signing-key');
     }
 
+    $secret = honeMcpSigningKey();
+    $keyring = new ConsoleKeyring;
+    $keyring->add('hone-test-key', $secret->getPublicKey()->toHexString());
+    $keyring->activate('hone-test-key');
+
+    app()->instance('hone.testing.mcp-signing-key', $secret);
+
+    return $secret;
+}
+
+function honeMcpSigningKey(): AsymmetricSecretKey
+{
     foreach (range(1, 16) as $ignored) {
         $secret = AsymmetricSecretKey::generate(new Version4);
 
         if (strlen($secret->raw()) === SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
-            $keyring = new ConsoleKeyring;
-            $keyring->add('hone-test-key', $secret->getPublicKey()->toHexString());
-            $keyring->activate('hone-test-key');
-
-            app()->instance('hone.testing.mcp-signing-key', $secret);
-
             return $secret;
         }
     }
@@ -41,14 +47,18 @@ function honeMcpTestSigningKey(): AsymmetricSecretKey
  *
  * @param  array<string, mixed>  $overrides
  */
-function honeMcpAssertion(array $overrides = []): string
-{
+function honeMcpAssertion(
+    array $overrides = [],
+    string $keyId = 'hone-test-key',
+    ?AsymmetricSecretKey $secret = null,
+): string {
     config()->set([
         'built-for-cloud.console.issuer' => 'https://scalpels.test',
         'built-for-cloud.console.audience' => 'https://hone.test',
     ]);
 
     $now = CarbonImmutable::now();
+    $secret ??= honeMcpTestSigningKey();
     $claims = array_filter(array_merge([
         'iss' => 'https://scalpels.test',
         'sub' => 'operator_42',
@@ -65,9 +75,9 @@ function honeMcpAssertion(array $overrides = []): string
     return (new Builder)
         ->setVersion(new Version4)
         ->setPurpose(Purpose::public())
-        ->setKey(honeMcpTestSigningKey())
+        ->setKey($secret)
         ->setClaims($claims)
-        ->setFooterArray(['kid' => 'hone-test-key'])
+        ->setFooterArray(['kid' => $keyId])
         ->toString();
 }
 

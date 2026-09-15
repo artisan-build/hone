@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Commands;
 
-use Illuminate\Console\Command;
+use ArtisanBuild\BuiltForCloud\Commands\SystemAuthorityCommand;
 use Illuminate\Support\Facades\DB;
 
-final class PruneCommand extends Command
+final class PruneCommand extends SystemAuthorityCommand
 {
     protected $signature = 'hone:prune';
 

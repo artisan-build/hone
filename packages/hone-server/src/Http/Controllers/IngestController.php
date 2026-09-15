@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Http\Controllers;
 
-use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\BuiltForCloud\AppPurposeRegistry;
+use ArtisanBuild\BuiltForCloud\Auth\BearerAuthenticator;
+use ArtisanBuild\BuiltForCloud\CredentialOwnership;
+use ArtisanBuild\BuiltForCloud\CredentialUsageRecorder;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\HoneContracts\Envelope;
 use ArtisanBuild\HoneContracts\Exceptions\InvalidEnvelope;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
@@ -15,11 +19,19 @@ use JsonException;
 
 final class IngestController
 {
-    public function ingest(Request $request, TokenRegistry $tokens): JsonResponse
-    {
-        $appId = $tokens->resolve((string) $request->bearerToken());
+    public function ingest(
+        Request $request,
+        BearerAuthenticator $authenticator,
+        AppPurposeRegistry $purposes,
+        CredentialUsageRecorder $usage,
+    ): JsonResponse {
+        $credential = $authenticator->credential($request);
 
-        if ($appId === null) {
+        if ($credential === null
+            || $credential->purpose !== $purposes->purpose('hone.ingest')
+            || $credential->subject_type !== SubjectType::Installation
+            || $credential->ownership() !== CredentialOwnership::Installation
+            || ! $usage->recordUsage($credential)) {
             return response()->json(['message' => 'Unauthorized.'], 401);
         }
 
@@ -53,7 +65,7 @@ final class IngestController
         }
 
         $job = new ProcessTelemetryBatch(
-            app: $appId,
+            app: $credential->subject_ref,
             deploy: $envelope->deploy,
             sentAt: $envelope->sentAt,
             records: $envelope->records,

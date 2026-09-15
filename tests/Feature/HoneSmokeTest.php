@@ -38,7 +38,7 @@ it('registers the web MCP route behind bearer authentication', function (): void
     $path = (string) config('hone-server.mcp.path', '/mcp');
     $route = Route::getRoutes()->match(Request::create($path, 'POST'));
 
-    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class);
+    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class.':product');
 
     $this->postJson($path, [])
         ->assertUnauthorized();
@@ -51,13 +51,12 @@ it('keeps the MCP POST route outside every session middleware group', function (
     expect(resolve('router')->gatherRouteMiddleware($route))->toBe([
         ReorderJsonAccept::class,
         AddWwwAuthenticateHeader::class,
-        AuthenticateMcp::class,
+        AuthenticateMcp::class.':product',
     ]);
 });
 
 it('registers Hone commands and schedules maintenance', function (): void {
     expect(Artisan::all())->toHaveKeys([
-        'token:create',
         'hone:maintain',
         'hone:rollup',
         'hone:prune',
@@ -77,8 +76,8 @@ it('runs Hone Postgres migrations and persists raw events on the hone connection
     expect(Schema::connection('hone')->hasTable('raw_events'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('aggregates'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('samples'))->toBeTrue()
-        ->and(Schema::hasTable('api_tokens'))->toBeTrue()
-        ->and(Schema::hasColumn('api_tokens', 'abilities'))->toBeTrue()
+        ->and(Schema::hasTable('credentials'))->toBeTrue()
+        ->and(Schema::hasColumn('credentials', 'purpose'))->toBeTrue()
         ->and(Schema::hasTable('ownership_claims'))->toBeTrue()
         ->and(Schema::hasTable('ownership'))->toBeTrue()
         ->and(Schema::hasTable('onboarding_tokens'))->toBeTrue();

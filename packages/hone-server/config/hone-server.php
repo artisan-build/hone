@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 return [
     /*
-     | Ingest and MCP bearer tokens are managed by artisan-build/built-for-cloud:
-     | per-app tokens live in the `api_tokens` table (issue them with
-     | `php artisan token:create {name}`), plus an optional `FALLBACK_TOKEN`.
+     | Ingest and MCP credentials are managed by artisan-build/built-for-cloud.
+     | Hone keeps their installation-owned purposes distinct: hone.ingest maps
+     | to consumption and hone.mcp maps to mcp.
      */
     'route_prefix' => env('HONE_ROUTE_PREFIX', ''),
 

@@ -58,33 +58,34 @@ Follow [reference/resource-plan.md](reference/resource-plan.md) exactly — it h
 sequence with the v0.5.0 dashboard fallbacks called out. Capture each resource's `id`/`connection` from
 `--json` for the next step. High level: app (auto-creates env) → Postgres cluster + `hone` schema → Redis
 cache → web instance + scheduler (dashboard) → managed queue → **attach DB+cache (dashboard)** → set
-`HONE_*` env vars → deploy → (Cloud auto-migrates, creating `api_tokens`) → `token:create` the first
-source-app token (no redeploy needed) or set a bootstrap `FALLBACK_TOKEN`.
+`HONE_*` env vars → deploy → (Cloud auto-migrates, creating the package credential store) → mint
+the first installation-owned `hone.ingest` credential.
 
 ## Step 4 — Verify (don't trust `environment:get` — it under-reports)
 
 `environment:get` does **not** reliably report `databaseSchemaId`/`cacheId`/`branch`. Verify functionally:
 
 - `curl -s -o /dev/null -w '%{http_code}' https://<env-url>/capabilities` → **200** (app up).
-- Ingest auth: POST `/ingest` with no token → **401**; with the real token → **422** (auth passed,
-  envelope validation). 401 with the real token means the token row is missing — re-run `token:create`
-  (or check `FALLBACK_TOKEN`).
+- Ingest auth: POST `/ingest` with no credential → **401**; with the installation-owned
+  `hone.ingest` credential → **422** (auth passed, envelope validation). A 401 with the intended
+  credential means it is missing, revoked, or has the wrong purpose or installation binding.
 - Migrations (Cloud auto-migrates on deploy, so a manual `migrate` may say "Nothing to migrate" — fine):
   `cloud command:run <env> --cmd="php artisan migrate:status" -n` lists the `hone` tables.
-- MCP: POST `/mcp` (no token → 401; with `Authorization: Bearer <api-token-or-FALLBACK_TOKEN>` →
-  `initialize` returns `serverInfo: Hone`). `tools/list` **paginates** (15 + a `nextCursor`) — all 19
-  tools are there.
+- MCP: POST `/mcp` (no credential → 401; with a distinct installation-owned `hone.mcp`
+  credential or supported delegated assertion, `initialize` returns `serverInfo: Hone`).
+  `tools/list` **paginates** (15 + a `nextCursor`) — all 19 tools are there.
 
 ## Step 5 — Hand off (the source-app test drive)
 
-- Issue the first token: `cloud command:run <env> --cmd="php artisan token:create <app-id>" -n`. It
-  prints the plaintext token once and stores only its hash in `api_tokens` — **no env var to set, no
-  redeploy**. The same token works for both ingest and MCP.
+- Issue the first ingest credential:
+  `cloud command:run <env> --cmd="php artisan bfc:credential:mint installation '<source-installation-ref>' --kind=bearer --purpose=consumption --name='hone-ingest-<app-id>' --local" -n`.
+  It reveals the plaintext once and stores only its hash in `credentials`; capture it directly into
+  the source app's secret environment. A separate `mcp`-purpose credential is required for MCP.
 - In the source app: `composer require laravel/nightwatch artisan-build/hone-client` then
   `php artisan hone:install --url=https://<env-url>/ingest --token=<plaintext>`. Set `NIGHTWATCH_DEPLOY`
   at deploy time. (There is a companion client-side skill in the `hone-client` package.)
-- Connect an agent: MCP at `https://<env-url>/<HONE_MCP_PATH>` with `Authorization: Bearer <token>` (any
-  `token:create` token or the `FALLBACK_TOKEN`).
+- Connect an agent: MCP at `https://<env-url>/<HONE_MCP_PATH>` with
+  `Authorization: Bearer <hone.mcp-credential>`. Never reuse the ingest credential.
 
 ## Step 6 — Scale later
 

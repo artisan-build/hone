@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Tests;
 
 use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\HoneServer\HoneServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -41,6 +43,14 @@ abstract class TestCase extends Orchestra
     protected function getEnvironmentSetUp($app): void
     {
         $app['config']->set('database.default', 'hone');
+        $app['config']->set('auth.providers.users', [
+            'driver' => 'eloquent',
+            'model' => User::class,
+        ]);
+        $app['config']->set('built-for-cloud.credentials.app_purposes', [
+            'hone.ingest' => CredentialPurpose::Consumption->value,
+            'hone.mcp' => CredentialPurpose::Mcp->value,
+        ]);
         $app['config']->set('hone-server.database', [
             'connection' => 'hone',
             'host' => '127.0.0.1',

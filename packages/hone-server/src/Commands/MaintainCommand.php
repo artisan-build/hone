@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Commands;
 
-use Illuminate\Console\Command;
+use ArtisanBuild\BuiltForCloud\Commands\SystemAuthorityCommand;
 use Illuminate\Support\Facades\Artisan;
 
-final class MaintainCommand extends Command
+final class MaintainCommand extends SystemAuthorityCommand
 {
     protected $signature = 'hone:maintain';
 

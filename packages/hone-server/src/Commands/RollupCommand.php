@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Commands;
 
-use Illuminate\Console\Command;
+use ArtisanBuild\BuiltForCloud\Commands\SystemAuthorityCommand;
 use Illuminate\Support\Facades\DB;
 
-final class RollupCommand extends Command
+final class RollupCommand extends SystemAuthorityCommand
 {
     protected $signature = 'hone:rollup';
 

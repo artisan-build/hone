@@ -4,14 +4,13 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer;
 
-use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
 use ArtisanBuild\HoneServer\Database\HoneConnectionConfig;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
-use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Mcp\Facades\Mcp;
 
@@ -90,7 +89,7 @@ final class HoneServerServiceProvider extends ServiceProvider
 
         $this->app->booted(function (): void {
             Mcp::web((string) config('hone-server.mcp.path', '/mcp'), HoneMcpServer::class)
-                ->middleware([AuthenticateMcp::class]);
+                ->middleware('bfc.mcp:product');
         });
 
         if ($this->app->runningInConsole()) {
@@ -100,8 +99,8 @@ final class HoneServerServiceProvider extends ServiceProvider
                 PruneCommand::class,
             ]);
 
-            $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
-                $schedule->command('hone:maintain')->hourly();
+            $this->app->booted(function (): void {
+                Schedule::command('hone:maintain')->hourly();
             });
         }
     }
