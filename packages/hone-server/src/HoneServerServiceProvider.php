@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer;
 
+use ArtisanBuild\HoneServer\Commands\BackfillCommand;
+use ArtisanBuild\HoneServer\Commands\HealthCommand;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
@@ -97,10 +99,14 @@ final class HoneServerServiceProvider extends ServiceProvider
                 MaintainCommand::class,
                 RollupCommand::class,
                 PruneCommand::class,
+                BackfillCommand::class,
+                HealthCommand::class,
             ]);
 
             $this->app->booted(function (): void {
-                Schedule::command('hone:maintain')->hourly();
+                Schedule::command('hone:maintain')
+                    ->hourly()
+                    ->withoutOverlapping((int) config('hone-server.maintenance.overlap_lock_minutes', 120));
             });
         }
     }
