@@ -26,7 +26,7 @@ variable sets; **confirm before any `:create`** (billable); delegate high-output
 | Application | `application:create` | One per client (skip if it exists). A default **environment** is auto-created. |
 | Postgres | `database-cluster:create --type neon_serverless_postgres_18` → `database:create <cluster> --name hone` | Neon serverless (autoscaling CU, suspends when idle — cheap). Holds `raw_events`/`aggregates`/`samples`. |
 | Redis | `cache:create --type upstash_redis --size … --auto-upgrade-enabled=false --is-public=false` | Backs the cache. |
-| Web instance | `instance:create … --type app --uses-scheduler=true` (**dashboard on v0.5.0** — see reality doc) | Serves `/ingest` + MCP. **Scheduler is this flag** (runs `hone:maintain` hourly), not a separate resource. |
+| Web instance | `instance:create … --type app --uses-scheduler=true` (**dashboard on v0.5.0** — see reality doc) | Serves `/ingest` + MCP. **Scheduler is this flag** (runs `hone:maintain` then `hone:health`, both hourly — see *Scheduled jobs* below), not a separate resource. |
 | Queue | `managed-queue:create` | **Use a managed queue — background-process workers are deprecated.** Requires `aws/aws-sdk-php` in the app (SQS-backed). |
 | Attach DB+cache to env | `environment:update --database-id … --cache-id …` (**dashboard on v0.5.0** — flags are silent no-ops) | Injects `DB_*`/`REDIS_*` at deploy. |
 
@@ -74,6 +74,27 @@ the first installation-owned `hone.ingest` credential.
 - MCP: POST `/mcp` (no credential → 401; with a distinct installation-owned `hone.mcp`
   credential or supported delegated assertion, `initialize` returns `serverInfo: Hone`).
   `tools/list` **paginates** (15 + a `nextCursor`) — all 19 tools are there.
+
+## Scheduled jobs — and the fact that nobody is watching `hone:health`
+
+The scheduler runs two Hone commands, both hourly, each behind its own overlap lock, in this order:
+
+1. **`hone:maintain`** — rollup then prune. This is the work that keeps `aggregates` current and
+   `raw_events` inside retention.
+2. **`hone:health`** — checks maintenance recency, raw retention age and aggregate freshness against the
+   `hone-server.health.*` budgets. It prints a table (or JSON with `--json`) and **exits non-zero if any
+   check is in alarm**. A non-zero exit means maintenance has stopped keeping up: it has not completed
+   recently, raw events are older than retention allows, or aggregates are stale.
+
+**These alarms are currently unrouted. Nothing collects that signal.** No monitor, alert, notification or
+pager consumes `hone:health`'s exit code or output. A failing run is visible only in the scheduler's own
+Cloud logs, and only to someone who goes and reads them. Do not describe a provisioned Hone instance as
+monitored or alerted, and do not tell the user this check gives them coverage — it does not until someone
+routes it, and that has been deliberately deferred. This matches Hone's stated position in its README:
+no alerting — pull, not push.
+
+To look at health yourself, read the scheduler logs in Cloud, or run it on demand (read-only):
+`cloud command:run <env> --cmd="php artisan hone:health --json" -n`.
 
 ## Step 5 — Hand off (the source-app test drive)
 

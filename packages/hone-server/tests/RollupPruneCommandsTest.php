@@ -271,7 +271,7 @@ it('runs maintenance by rolling up before pruning expired raw events', function 
         ->and(RawEvent::query()->count())->toBe(0);
 });
 
-it('registers rollup prune and maintain commands while scheduling only maintain', function (): void {
+it('registers rollup prune and maintain commands while scheduling maintain but never rollup or prune', function (): void {
     expect(Artisan::all())->toHaveKeys(['hone:maintain', 'hone:rollup', 'hone:prune']);
 
     $commands = collect(app(Schedule::class)->events())
@@ -284,6 +284,25 @@ it('registers rollup prune and maintain commands while scheduling only maintain'
     expect($maintainCommands)->toHaveCount(1)
         ->and($commands->contains(fn (string $command): bool => str_contains($command, 'hone:rollup')))->toBeFalse()
         ->and($commands->contains(fn (string $command): bool => str_contains($command, 'hone:prune')))->toBeFalse();
+});
+
+it('schedules health hourly after maintenance behind its own overlap lock', function (): void {
+    $events = collect(app(Schedule::class)->events())
+        ->filter(fn (Event $event): bool => str_contains((string) $event->command, 'hone:'))
+        ->values();
+
+    $maintainIndex = $events->search(fn (Event $event): bool => str_contains((string) $event->command, 'hone:maintain'));
+    $healthIndex = $events->search(fn (Event $event): bool => str_contains((string) $event->command, 'hone:health'));
+
+    expect($events->filter(fn (Event $event): bool => str_contains((string) $event->command, 'hone:health')))->toHaveCount(1)
+        ->and($healthIndex)->toBeGreaterThan($maintainIndex);
+
+    $health = $events[$healthIndex];
+
+    expect($health->expression)->toBe('0 * * * *')
+        ->and($health->withoutOverlapping)->toBeTrue()
+        ->and($health->expiresAt)->toBe(60)
+        ->and($health->mutexName())->not->toBe($events[$maintainIndex]->mutexName());
 });
 
 it('writes more than 6,553 aggregate rows in one rollup run', function (): void {
