@@ -107,6 +107,10 @@ final class HoneServerServiceProvider extends ServiceProvider
                 Schedule::command('hone:maintain')
                     ->hourly()
                     ->withoutOverlapping((int) config('hone-server.maintenance.overlap_lock_minutes', 120));
+
+                Schedule::command('hone:health')
+                    ->hourly()
+                    ->withoutOverlapping(60);
             });
         }
     }
