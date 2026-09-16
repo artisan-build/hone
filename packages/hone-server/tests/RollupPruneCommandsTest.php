@@ -291,10 +291,14 @@ it('schedules health hourly after maintenance behind its own overlap lock', func
         ->filter(fn (Event $event): bool => str_contains((string) $event->command, 'hone:'))
         ->values();
 
-    $maintainIndex = $events->search(fn (Event $event): bool => str_contains((string) $event->command, 'hone:maintain'));
-    $healthIndex = $events->search(fn (Event $event): bool => str_contains((string) $event->command, 'hone:health'));
+    $isCommand = fn (string $name): Closure => fn (Event $event): bool => str_ends_with((string) $event->command, ' '.$name);
 
-    expect($events->filter(fn (Event $event): bool => str_contains((string) $event->command, 'hone:health')))->toHaveCount(1)
+    $maintainIndex = $events->search($isCommand('hone:maintain'));
+    $healthIndex = $events->search($isCommand('hone:health'));
+
+    expect($events->filter($isCommand('hone:health')))->toHaveCount(1)
+        ->and($maintainIndex)->toBeInt()
+        ->and($healthIndex)->toBeInt()
         ->and($healthIndex)->toBeGreaterThan($maintainIndex);
 
     $health = $events[$healthIndex];
