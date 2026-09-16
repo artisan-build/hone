@@ -28,7 +28,10 @@ plus the slim Hone app at the root).
 
 ## Dependency install (fresh worktree)
 - command: `composer install --no-interaction` at the root AND inside every touched `packages/hone-<pkg>`.
-- post-install: copy `.env`, `touch database/database.sqlite`.
+- post-install: copy `.env`, **`php artisan key:generate`**, `touch database/database.sqlite`.
+  Without an `APP_KEY` the gate reports phantom drift: `composer ready` rewrites `_ide_helper.php`,
+  silently dropping the `Crypt` facade, and the change looks like something your work caused.
+  (Found by the #39-#44 rollup fast-follow worker, 2026-09-16.)
 - NEVER symlink or `cp -R` `vendor/` (root or package level) — it makes Composer resolve the wrong
   checkout and produces phantom framework-boot/test failures. Real install only.
 
