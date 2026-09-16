@@ -7,6 +7,7 @@ use ArtisanBuild\HoneServer\Mcp\Support\AggregateWindow;
 use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ExceptionsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\LogVolumeByLevelTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\MailVolumeTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\NotificationVolumeTool;
@@ -20,6 +21,7 @@ use ArtisanBuild\HoneServer\Mcp\Tools\SlowQueriesTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\SlowRequestsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\TopUsersTool;
 use ArtisanBuild\HoneServer\Models\Aggregate;
+use ArtisanBuild\HoneServer\Models\RawEvent;
 use Illuminate\Support\Carbon;
 
 function seedAggregateBucket(
@@ -359,4 +361,92 @@ it('returns seeded job and outgoing request offenders through their slow tools',
         ->assertSee('GET api.example.com')
         ->assertSee('75')
         ->assertSee('8');
+});
+
+it('distinguishes a window no aggregates cover from a genuine zero', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'mail', 'App\\Mail\\Receipt', $today->copy()->subDays(17), 40, 0, 0, 0, 0);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(MailVolumeTool::class, ['app' => 'checkout', 'days' => 7])->assertOk());
+
+    expect($payload['total'])->toBe(['count' => 0])
+        ->and($payload['aggregate_freshness']['covers_window'])->toBeFalse()
+        ->and($payload['aggregate_freshness']['newest_bucket_date'])->toBe($today->copy()->subDays(17)->toDateString())
+        ->and($payload['aggregate_freshness']['age_days'])->toBe(17)
+        ->and($payload['aggregate_freshness']['window_start'])->toBe($today->copy()->subDays(7)->toDateString())
+        ->and($payload['aggregate_freshness']['warning'])->toContain('No aggregates cover this window');
+});
+
+it('reports the real total with a zero-age freshness field when today is aggregated', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('checkout', 'mail', 'App\\Mail\\Receipt', $today, 40, 0, 0, 0, 0);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(MailVolumeTool::class, ['app' => 'checkout', 'days' => 7])->assertOk());
+
+    expect($payload['total'])->toBe(['count' => 40])
+        ->and($payload['aggregate_freshness'])->toBe([
+            'newest_bucket_date' => $today->toDateString(),
+            'age_days' => 0,
+            'window_start' => $today->copy()->subDays(7)->toDateString(),
+            'covers_window' => true,
+            'warning' => null,
+        ]);
+});
+
+it('says no aggregates exist yet rather than returning a bare zero on an empty install', function (): void {
+    $freshness = app(AggregateWindow::class)->freshness(7);
+
+    expect($freshness['covers_window'])->toBeFalse()
+        ->and($freshness['newest_bucket_date'])->toBeNull()
+        ->and($freshness['age_days'])->toBeNull()
+        ->and($freshness['warning'])->toContain('No aggregates exist yet');
+});
+
+it('carries aggregate freshness on every aggregate-backed tool', function (string $toolClass, array $arguments): void {
+    $payload = honeToolPayload(HoneMcpServer::tool($toolClass, $arguments)->assertOk());
+
+    expect($payload)->toHaveKey('aggregate_freshness')
+        ->and($payload['aggregate_freshness'])->toHaveKeys(['newest_bucket_date', 'age_days', 'window_start', 'covers_window', 'warning']);
+})->with([
+    'slow requests' => [SlowRequestsTool::class, []],
+    'slow queries' => [SlowQueriesTool::class, []],
+    'slow jobs' => [SlowJobsTool::class, []],
+    'slow outgoing requests' => [SlowOutgoingRequestsTool::class, []],
+    'query metric' => [QueryMetricTool::class, ['record_type' => 'query', 'metric' => 'count']],
+    'regression check' => [RegressionCheckTool::class, ['record_type' => 'query', 'normalized_key' => 'select-users-by-id', 'metric' => 'p95']],
+    'exceptions' => [ExceptionsTool::class, []],
+    'cache stats' => [CacheStatsTool::class, []],
+    'queue throughput' => [QueueThroughputTool::class, []],
+    'mail volume' => [MailVolumeTool::class, []],
+    'notification volume' => [NotificationVolumeTool::class, []],
+    'scheduled task health' => [ScheduledTaskHealthTool::class, []],
+    'command stats' => [CommandStatsTool::class, []],
+    'log volume' => [LogVolumeByLevelTool::class, []],
+    'top users' => [TopUsersTool::class, []],
+]);
+
+it('does not report healthy when ingest is fresh but aggregates are stale', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    RawEvent::factory()->create(['app' => 'checkout', 'occurred_at' => Carbon::now('UTC')->subMinutes(2)]);
+    seedAggregateBucket('checkout', 'request', 'GET /', $today->copy()->subDays(17), 10, 1, 1, 1, 1);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(IngestFreshnessTool::class)->assertOk());
+
+    expect($payload['apps'][0]['app'])->toBe('checkout')
+        ->and($payload['health']['status'])->toBe('unhealthy')
+        ->and($payload['health']['checks']['aggregate_freshness']['status'])->toBe('alarm')
+        ->and($payload['aggregate_freshness']['age_days'])->toBe(17);
+});
+
+it('reports healthy on the ingest freshness surface when ingest and aggregates are both current', function (): void {
+    RawEvent::factory()->create(['app' => 'checkout', 'occurred_at' => Carbon::now('UTC')->subMinutes(2)]);
+    seedAggregateBucket('checkout', 'request', 'GET /', Carbon::now('UTC')->startOfDay(), 10, 1, 1, 1, 1);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(IngestFreshnessTool::class)->assertOk());
+
+    expect($payload['health']['status'])->toBe('healthy')
+        ->and($payload['aggregate_freshness']['age_days'])->toBe(0);
 });

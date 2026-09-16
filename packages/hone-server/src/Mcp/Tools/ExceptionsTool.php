@@ -52,6 +52,7 @@ final class ExceptionsTool extends Tool
                 'limit' => $limit,
             ],
             'exceptions' => $rows,
+            'aggregate_freshness' => app(AggregateWindow::class)->freshness($days),
         ]);
     }
 
