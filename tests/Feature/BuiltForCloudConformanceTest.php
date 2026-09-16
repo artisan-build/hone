@@ -25,6 +25,8 @@ use ArtisanBuild\BuiltForCloud\Jobs\DeliverOwnershipWebhook;
 use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
 use ArtisanBuild\BuiltForCloud\Testing\FleetConformance;
+use ArtisanBuild\HoneServer\Commands\BackfillCommand;
+use ArtisanBuild\HoneServer\Commands\HealthCommand;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
@@ -134,6 +136,8 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
             SigningRootProvisionCommand::class,
             SubjectOffboardCommand::class,
             WarnExpiringCredentialsCommand::class,
+            BackfillCommand::class,
+            HealthCommand::class,
             MaintainCommand::class,
             PruneCommand::class,
             RollupCommand::class,

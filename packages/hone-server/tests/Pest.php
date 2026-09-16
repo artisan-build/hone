@@ -5,6 +5,8 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\HoneServer\Tests\TestCase;
 use Carbon\CarbonImmutable;
+use Laravel\Mcp\Server\Testing\TestResponse;
+use Laravel\Mcp\Server\Transport\JsonRpcResponse;
 use ParagonIE\Paseto\Builder;
 use ParagonIE\Paseto\Keys\Version4\AsymmetricSecretKey;
 use ParagonIE\Paseto\Protocol\Version4;
@@ -100,4 +102,20 @@ function honeMcpToolCall(string $name = 'list-apps-tool'): array
             'arguments' => [],
         ],
     ];
+}
+
+/**
+ * Decode the JSON payload an MCP tool returned.
+ *
+ * @return array<string, mixed>
+ */
+function honeToolPayload(TestResponse $response): array
+{
+    $property = new ReflectionProperty($response, 'response');
+
+    /** @var JsonRpcResponse $jsonRpc */
+    $jsonRpc = $property->getValue($response);
+
+    /** @var array<string, mixed> */
+    return json_decode((string) $jsonRpc->toArray()['result']['content'][0]['text'], true, flags: JSON_THROW_ON_ERROR);
 }

@@ -46,6 +46,7 @@ final class QueueThroughputTool extends Tool
             ],
             'total' => $window->total('queued-job', $days, $validated['app'] ?? null),
             'jobs' => $window->topOffenders('queued-job', $days, $validated['app'] ?? null, null, 'count', $limit),
+            'aggregate_freshness' => $window->freshness($days),
         ]);
     }
 

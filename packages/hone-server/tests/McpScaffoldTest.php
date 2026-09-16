@@ -25,8 +25,10 @@ use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RecordTypesTool;
 use ArtisanBuild\HoneServer\Models\RawEvent;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
@@ -61,6 +63,8 @@ it('couples a non-default HONE_MCP_PATH to metadata and the guarded route', func
 });
 
 it('lists apps reporting to hone', function (): void {
+    Carbon::setTestNow('2026-06-09 15:00:00+00');
+
     RawEvent::factory()->create([
         'app' => 'checkout',
         'occurred_at' => Carbon::parse('2026-06-09 12:00:00+00'),
@@ -83,6 +87,8 @@ it('lists record types with counts', function (): void {
 });
 
 it('lists recent deploys with first and last seen timestamps', function (): void {
+    Carbon::setTestNow('2026-06-09 15:00:00+00');
+
     RawEvent::factory()->create([
         'app' => 'checkout',
         'deploy' => 'abc123',
@@ -95,6 +101,8 @@ it('lists recent deploys with first and last seen timestamps', function (): void
 });
 
 it('lists ingest freshness by app', function (): void {
+    Carbon::setTestNow('2026-06-09 15:00:00+00');
+
     RawEvent::factory()->create([
         'app' => 'checkout',
         'occurred_at' => Carbon::parse('2026-06-09 12:00:00+00'),
@@ -106,6 +114,8 @@ it('lists ingest freshness by app', function (): void {
 });
 
 it('reflects the latest occurred at timestamp for ingest freshness', function (): void {
+    Carbon::setTestNow('2026-06-09 15:00:00+00');
+
     RawEvent::factory()->create([
         'app' => 'checkout',
         'occurred_at' => Carbon::parse('2026-06-08 12:00:00', 'UTC'),
@@ -425,3 +435,47 @@ it('scopes record types to the requested app', function (): void {
         ->assertSee('query')
         ->assertDontSee('exception');
 });
+
+it('bounds every raw event catalogue tool to a finite default lookback', function (string $toolClass): void {
+    Carbon::setTestNow('2026-06-09 15:00:00+00');
+
+    RawEvent::factory()->create(['app' => 'recent-app', 'record_type' => 'recent-type', 'deploy' => 'recent-deploy', 'occurred_at' => now()->subHours(71)]);
+    RawEvent::factory()->create(['app' => 'ancient-app', 'record_type' => 'ancient-type', 'deploy' => 'ancient-deploy', 'occurred_at' => now()->subHours(73)]);
+
+    DB::connection('hone')->enableQueryLog();
+    $response = HoneMcpServer::tool($toolClass)->assertOk();
+    $rawEventReads = collect(DB::connection('hone')->getQueryLog())
+        ->filter(fn (array $entry): bool => str_contains($entry['query'], 'from "raw_events"'));
+    DB::connection('hone')->disableQueryLog();
+
+    expect($rawEventReads)->not->toBeEmpty();
+
+    $catalogueRead = $rawEventReads->first(fn (array $entry): bool => str_contains($entry['query'], 'group by'));
+
+    expect($catalogueRead['query'])->toContain('"occurred_at" >= ?')
+        ->and(collect($catalogueRead['bindings'])->contains(fn (mixed $binding): bool => $binding instanceof DateTimeInterface
+            && CarbonImmutable::instance($binding)->equalTo(CarbonImmutable::parse('2026-06-06 15:00:00+00'))))->toBeTrue()
+        ->and(honeToolPayload($response)['window'])->toBe(['hours' => 72, 'since' => '2026-06-06T15:00:00.000000Z']);
+
+    $response->assertDontSee('ancient-')->assertSee('recent-');
+})->with([
+    ListAppsTool::class,
+    RecordTypesTool::class,
+    DeploysTool::class,
+    IngestFreshnessTool::class,
+]);
+
+it('honors an explicit raw event lookback and rejects an unbounded one', function (string $toolClass): void {
+    Carbon::setTestNow('2026-06-09 15:00:00+00');
+
+    RawEvent::factory()->create(['app' => 'older-app', 'record_type' => 'older-type', 'deploy' => 'older-deploy', 'occurred_at' => now()->subHours(100)]);
+
+    HoneMcpServer::tool($toolClass, ['hours' => 101])->assertOk()->assertSee('older-');
+    HoneMcpServer::tool($toolClass, ['hours' => 99])->assertOk()->assertDontSee('older-');
+    HoneMcpServer::tool($toolClass, ['hours' => 721])->assertHasErrors();
+})->with([
+    ListAppsTool::class,
+    RecordTypesTool::class,
+    DeploysTool::class,
+    IngestFreshnessTool::class,
+]);
