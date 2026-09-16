@@ -361,13 +361,13 @@ it('reads only the trailing window and leaves out-of-window aggregates untouched
 
     $untouched = Aggregate::query()->findOrFail($outOfWindowAggregate->getKey());
 
-    expect($rawEventStatements)->not->toBeEmpty()
-        ->and($rawEventStatements->every(fn (string $sql): bool => str_contains($sql, 'occurred_at >= ?') || str_contains($sql, '"occurred_at" <')))->toBeTrue()
-        ->and($untouched->value)->toBe(1.0)
+    expect($untouched->value)->toBe(1.0)
         ->and($untouched->sample_count)->toBe(1)
         ->and($untouched->updated_at->equalTo($staleUpdatedAt))->toBeTrue()
         ->and(Aggregate::query()->where('normalized_key', 'old-unaggregated-query')->exists())->toBeFalse()
-        ->and(Aggregate::query()->where('normalized_key', 'new-query')->where('metric', 'count')->value('value'))->toBe(1.0);
+        ->and(Aggregate::query()->where('normalized_key', 'new-query')->where('metric', 'count')->value('value'))->toBe(1.0)
+        ->and($rawEventStatements)->not->toBeEmpty()
+        ->and($rawEventStatements->every(fn (string $sql): bool => str_contains($sql, 'occurred_at >= ?') || str_contains($sql, '"occurred_at" <')))->toBeTrue();
 });
 
 it('widens the rollup read window through the late arrival setting', function (): void {
