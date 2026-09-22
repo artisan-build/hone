@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "de97b04c5fdc98777bd52dff0ed06f0b",
+    "content-hash": "cf09f233dff6f86bcd1d960292d5c970",
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.12.1",
+            "version": "v0.16.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "7ef756079ed72069210d132863e847c4789a87b2"
+                "reference": "47ca9dd034bf857245f9a24718dd4afa44cb30ef"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/7ef756079ed72069210d132863e847c4789a87b2",
-                "reference": "7ef756079ed72069210d132863e847c4789a87b2",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/47ca9dd034bf857245f9a24718dd4afa44cb30ef",
+                "reference": "47ca9dd034bf857245f9a24718dd4afa44cb30ef",
                 "shasum": ""
             },
             "require": {
@@ -71,9 +71,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.12.1"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.16.0"
             },
-            "time": "2026-09-15T09:58:05+00:00"
+            "time": "2026-09-22T02:43:56+00:00"
         },
         {
             "name": "artisan-build/hone-contracts",
@@ -134,10 +134,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/hone-server",
-                "reference": "9c6730f53053b995d5d185c196ab5f751ab817c4"
+                "reference": "0eeb930fcc89d48594ab85f89124d243871beb8c"
             },
             "require": {
-                "artisan-build/built-for-cloud": "^0.12.1",
+                "artisan-build/built-for-cloud": "^0.16.0",
                 "artisan-build/hone-contracts": "^1.0",
                 "illuminate/contracts": "^13.0",
                 "illuminate/database": "^13.0",
