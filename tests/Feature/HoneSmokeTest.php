@@ -96,6 +96,7 @@ it('runs Hone Postgres migrations and persists raw events on the hone connection
             'console-key-retire',
             'console-vitals',
             'app-action-audit-emit',
+            'managed-enrolment',
             'mcp-serve',
             'mcp-delegated',
         ])
