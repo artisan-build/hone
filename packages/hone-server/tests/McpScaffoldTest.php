@@ -31,6 +31,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Mcp\Facades\Mcp;
+use Laravel\Mcp\Server\Registrar;
 
 uses(WithCredentials::class);
 
@@ -60,6 +62,15 @@ it('couples a non-default HONE_MCP_PATH to metadata and the guarded route', func
     expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class.':product');
 
     $this->postJson('/custom-mcp')->assertUnauthorized();
+});
+
+it('registers no local stdio MCP handle', function (): void {
+    $registrar = app(Registrar::class);
+
+    $localServers = new ReflectionProperty($registrar, 'localServers');
+
+    expect($localServers->getValue($registrar))->toBe([])
+        ->and(Mcp::getWebServer(ltrim((string) config('hone-server.mcp.path'), '/')))->not->toBeNull();
 });
 
 it('lists apps reporting to hone', function (): void {
