@@ -21,7 +21,7 @@ abstract class InertByDefaultTestCase extends Orchestra
 
     protected function setUp(): void
     {
-        foreach (['HONE_URL', 'HONE_TOKEN', 'NIGHTWATCH_ENABLED'] as $key) {
+        foreach (['HONE_URL', 'HONE_TOKEN', 'NIGHTWATCH_ENABLED', 'NIGHTWATCH_TOKEN'] as $key) {
             Env::getRepository()->clear($key);
         }
 

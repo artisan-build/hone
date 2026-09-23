@@ -11,7 +11,6 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
-use Illuminate\Support\Env;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -126,10 +125,10 @@ it('stays inert when neither url nor token are configured', function (): void {
         ->and(honeClientGlobalMiddleware())->not->toContain(CaptureResponseContext::class);
 });
 
-it('disables nightwatch when its environment setting and Hone credentials are absent', function (): void {
-    Env::getRepository()->clear('NIGHTWATCH_ENABLED');
+it('disables nightwatch when its token and Hone credentials are absent', function (): void {
     config()->set('hone.url', null);
     config()->set('hone.token', null);
+    config()->set('nightwatch.token', null);
     config()->set('nightwatch.enabled', true);
 
     (new HoneClientServiceProvider(app()))->register();
@@ -137,28 +136,24 @@ it('disables nightwatch when its environment setting and Hone credentials are ab
     expect(config('nightwatch.enabled'))->toBeFalse();
 });
 
-it('preserves an explicit nightwatch environment setting', function (string $value, bool $enabled): void {
-    Env::getRepository()->set('NIGHTWATCH_ENABLED', $value);
+it('preserves the nightwatch enabled setting when its token is configured', function (bool $enabled): void {
     config()->set('hone.url', null);
     config()->set('hone.token', null);
+    config()->set('nightwatch.token', 'nightwatch-token');
     config()->set('nightwatch.enabled', $enabled);
 
-    try {
-        (new HoneClientServiceProvider(app()))->register();
+    (new HoneClientServiceProvider(app()))->register();
 
-        expect(config('nightwatch.enabled'))->toBe($enabled);
-    } finally {
-        Env::getRepository()->clear('NIGHTWATCH_ENABLED');
-    }
+    expect(config('nightwatch.enabled'))->toBe($enabled);
 })->with([
-    'true' => ['true', true],
-    'false' => ['false', false],
+    'true' => [true],
+    'false' => [false],
 ]);
 
 it('leaves nightwatch enabled when Hone is configured', function (): void {
-    Env::getRepository()->clear('NIGHTWATCH_ENABLED');
     config()->set('hone.url', 'https://hone.test/ingest');
     config()->set('hone.token', 'secret-token');
+    config()->set('nightwatch.token', null);
     config()->set('nightwatch.enabled', true);
 
     (new HoneClientServiceProvider(app()))->register();
