@@ -1,0 +1,15 @@
+import {spawnSync} from 'node:child_process';
+import {mkdirSync, writeFileSync, readFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+const root = fileURLToPath(new URL('../', import.meta.url));
+mkdirSync(new URL('../out/', import.meta.url), {recursive:true});
+const {validateProduct} = await import('./validate.mjs');
+validateProduct(JSON.parse(readFileSync(root + 'src/product.json')), root + 'public');
+const started = Date.now();
+const result = spawnSync(process.execPath, [root + 'node_modules/@remotion/cli/remotion-cli.js', 'render', 'src/index.tsx', 'Hone', 'out/hone-explainer.mp4', '--codec=h264', '--pixel-format=yuv420p', '--crf=18', '--concurrency=2'], {cwd:root, encoding:'utf8'});
+writeFileSync(root + 'out/render.log', (result.stdout ?? '') + (result.stderr ?? ''));
+const summary = {startedAt:new Date(started).toISOString(), elapsedSeconds:(Date.now()-started)/1000, exitCode:result.status, error:result.error?.message};
+writeFileSync(root + 'out/render-result.json', JSON.stringify(summary,null,2)+'\n');
+console.log(summary);
+if (result.status !== 0) console.error(result.stderr, result.stdout?.slice(-3000));
+process.exit(result.status ?? 1);

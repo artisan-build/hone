@@ -1,0 +1,25 @@
+{
+  "name": "hone-remotion-pilot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "render": "node scripts/render.mjs",
+    "poster": "remotion still src/index.tsx Hone out/hone-poster.png --frame=1455",
+    "studio": "remotion studio src/index.tsx",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "remotion": "4.0.527",
+    "@remotion/cli": "4.0.527",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3"
+  }
+}

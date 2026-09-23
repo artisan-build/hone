@@ -1,0 +1,18 @@
+{
+  "id": "Hone",
+  "name": "Hone",
+  "series": "SCALPELS / SMALL, SHARP TOOLS",
+  "asset": "hone.png",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "theme": {"paper":"#F5F2E9", "ink":"#173C37", "accent":"#BEDA48", "muted":"#55716A"},
+  "scenes": [
+    {"kind":"intro", "seconds":8, "eyebrow":"FOR LARAVEL DEVELOPERS + THEIR CODING AGENTS", "title":"Your app is slow.\nWhere do you start?", "body":"Give your agent performance evidence.", "label":"Self-hosted Laravel telemetry"},
+    {"kind":"flow", "seconds":9, "eyebrow":"MEET HONE", "title":"From your app\nto your agent.", "body":"Hone stores telemetry in your PostgreSQL database.", "nodes":["Laravel app", "Hone", "Coding agent"], "details":["Nightwatch telemetry", "Your infrastructure", "Read through MCP"], "footer":"MCP = Model Context Protocol · No Hone dashboard"},
+    {"kind":"conversation", "seconds":10, "eyebrow":"ASK A FOCUSED QUESTION", "title":"Which query should\nwe investigate?", "body":"Find the slowest queries in the shop app.", "tool":"slow_queries", "arguments":{"app":"shop", "days":7, "metric":"avg", "limit":1}, "footer":"Illustrative agent conversation · Synthetic example data"},
+    {"kind":"finding", "seconds":11, "eyebrow":"ONE CONCRETE LEAD", "title":"The orders query\nis worth a closer look.", "query":"select * from orders\nwhere customer_id = ?", "metrics":[{"value":"420 ms", "label":"Average duration"},{"value":"2,400", "label":"Recorded queries"}], "body":"Next: inspect the query plan and the customer_id index.", "footer":"Illustrative result summary · Synthetic data · Index issue not yet proven"},
+    {"kind":"benefit", "seconds":8, "eyebrow":"EVIDENCE → INVESTIGATION", "title":"A better starting point\nfor your next change.", "body":"Investigate. Make a change. Measure again.", "footer":"Hone supplies the telemetry. Your agent helps you reason about it."},
+    {"kind":"outro", "seconds":8, "eyebrow":"HONE / BY SCALPELS", "title":"Performance telemetry.\nIn your agent’s hands.", "body":"Explore Hone", "cta":"scalpels.app/products/hone", "footer":"Self-hosted · Laravel · MCP"}
+  ]
+}
