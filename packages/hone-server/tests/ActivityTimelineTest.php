@@ -7,6 +7,7 @@ use ArtisanBuild\HoneServer\Models\ActivityBucket;
 use ArtisanBuild\HoneServer\Models\Aggregate;
 use ArtisanBuild\HoneServer\Models\BackgroundActivityBucket;
 use ArtisanBuild\HoneServer\Models\RawEvent;
+use ArtisanBuild\HoneServer\Models\RequestActivityBucket;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -143,6 +144,9 @@ it('retains timeline buckets independently for 400 days at the exact cutoff', fu
     $expiredBackground = BackgroundActivityBucket::factory()->create(['bucket_minute' => now()->subDays(400)->subMinute()]);
     $backgroundAtCutoff = BackgroundActivityBucket::factory()->create(['bucket_minute' => now()->subDays(400)]);
     $newerBackground = BackgroundActivityBucket::factory()->create(['bucket_minute' => now()->subDays(2)]);
+    $expiredRequest = RequestActivityBucket::factory()->create(['bucket_minute' => now()->subDays(400)->subMinute()]);
+    $requestAtCutoff = RequestActivityBucket::factory()->create(['bucket_minute' => now()->subDays(400)]);
+    $newerRequest = RequestActivityBucket::factory()->create(['bucket_minute' => now()->subDays(2)]);
     $expiredAggregate = Aggregate::factory()->create(['bucket_date' => now()->subDays(2)->toDateString()]);
 
     Artisan::call('hone:prune');
@@ -154,6 +158,9 @@ it('retains timeline buckets independently for 400 days at the exact cutoff', fu
         ->and(BackgroundActivityBucket::query()->whereKey($expiredBackground->getKey())->exists())->toBeFalse()
         ->and(BackgroundActivityBucket::query()->whereKey($backgroundAtCutoff->getKey())->exists())->toBeTrue()
         ->and(BackgroundActivityBucket::query()->whereKey($newerBackground->getKey())->exists())->toBeTrue()
+        ->and(RequestActivityBucket::query()->whereKey($expiredRequest->getKey())->exists())->toBeFalse()
+        ->and(RequestActivityBucket::query()->whereKey($requestAtCutoff->getKey())->exists())->toBeTrue()
+        ->and(RequestActivityBucket::query()->whereKey($newerRequest->getKey())->exists())->toBeTrue()
         ->and(Aggregate::query()->whereKey($expiredAggregate->getKey())->exists())->toBeFalse();
 });
 
