@@ -24,6 +24,11 @@ final class HoneClientServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/hone.php', 'hone');
 
+        if ((blank(config('hone.url')) || blank(config('hone.token')))
+            && blank(config('nightwatch.token'))) {
+            config()->set('nightwatch.enabled', false);
+        }
+
         $this->app->bind(HoneIngest::class, function (Application $app): HoneIngest {
             return new HoneIngest(
                 url: (string) config('hone.url'),
@@ -52,8 +57,6 @@ final class HoneClientServiceProvider extends ServiceProvider
             ]);
         }
 
-        $this->app->make(ContractsVersionNudge::class)->check();
-
         $this->app->booted(function (): void {
             $url = config('hone.url');
             $token = config('hone.token');
@@ -67,6 +70,8 @@ final class HoneClientServiceProvider extends ServiceProvider
 
                 return;
             }
+
+            $this->app->make(ContractsVersionNudge::class)->check();
 
             if (! $this->app->bound(Core::class)) {
                 return;
