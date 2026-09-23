@@ -81,6 +81,8 @@ You do **not** need a `NIGHTWATCH_TOKEN`. Nightwatch's collection is gated by
 `NIGHTWATCH_ENABLED` (default `true`), not the token — and Hone never talks to Nightwatch's
 cloud, so no real Nightwatch credential is required.
 
+If a separately managed local agent holds the token instead of the app, duplicate `NIGHTWATCH_TOKEN` into the app environment so `hone-client` leaves Nightwatch enabled.
+
 > **On Laravel Cloud:** do **not** enable the built-in Nightwatch toggle — it runs Cloud's
 > managed agent and ships to Nightwatch's cloud, which conflicts with the rebind. Install
 > `laravel/nightwatch` + `hone-client` and let the rebind own the transport. Set
