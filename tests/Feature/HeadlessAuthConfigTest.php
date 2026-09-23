@@ -5,9 +5,11 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\AppPurposeRegistry;
 use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureUserIsAuthenticated;
 use ArtisanBuild\BuiltForCloud\Testing\ThinHostConformance;
 use ArtisanBuild\BuiltForCloud\User;
 use Composer\InstalledVersions;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
@@ -90,3 +92,14 @@ it('runs fresh package-owned migrations and resolves package users through the w
     expect($retrieved)->toBeInstanceOf(User::class)
         ->and($provider->validateCredentials($retrieved, ['password' => 'test-password']))->toBeTrue();
 });
+
+it('keeps Built for Cloud personal credential routes unreachable without a local user', function (string $method, string $path): void {
+    $route = resolve('router')->getRoutes()->match(Request::create($path, $method));
+
+    expect($route->gatherMiddleware())->toContain(EnsureUserIsAuthenticated::class)
+        ->and($this->json($method, $path)->status())->toBe(401);
+})->with([
+    'list credentials' => ['GET', '/bfc/me/credentials'],
+    'create credential' => ['POST', '/bfc/me/credentials'],
+    'delete credential' => ['DELETE', '/bfc/me/credentials/1'],
+]);
