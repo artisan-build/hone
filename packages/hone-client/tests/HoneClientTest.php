@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\HoneClient\ContractsVersionNudge;
 use ArtisanBuild\HoneClient\HoneClientServiceProvider;
 use ArtisanBuild\HoneClient\HoneIngest;
 use ArtisanBuild\HoneClient\Http\Middleware\CaptureResponseContext;
@@ -10,6 +11,7 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -122,6 +124,56 @@ it('stays inert when neither url nor token are configured', function (): void {
     expect(app(Core::class)->ingest)->toBe($original)
         ->and(app(Core::class)->ingest)->not->toBeInstanceOf(HoneIngest::class)
         ->and(honeClientGlobalMiddleware())->not->toContain(CaptureResponseContext::class);
+});
+
+it('disables nightwatch when its environment setting and Hone credentials are absent', function (): void {
+    Env::getRepository()->clear('NIGHTWATCH_ENABLED');
+    config()->set('hone.url', null);
+    config()->set('hone.token', null);
+    config()->set('nightwatch.enabled', true);
+
+    (new HoneClientServiceProvider(app()))->register();
+
+    expect(config('nightwatch.enabled'))->toBeFalse();
+});
+
+it('preserves an explicit nightwatch environment setting', function (string $value, bool $enabled): void {
+    Env::getRepository()->set('NIGHTWATCH_ENABLED', $value);
+    config()->set('hone.url', null);
+    config()->set('hone.token', null);
+    config()->set('nightwatch.enabled', $enabled);
+
+    try {
+        (new HoneClientServiceProvider(app()))->register();
+
+        expect(config('nightwatch.enabled'))->toBe($enabled);
+    } finally {
+        Env::getRepository()->clear('NIGHTWATCH_ENABLED');
+    }
+})->with([
+    'true' => ['true', true],
+    'false' => ['false', false],
+]);
+
+it('leaves nightwatch enabled when Hone is configured', function (): void {
+    Env::getRepository()->clear('NIGHTWATCH_ENABLED');
+    config()->set('hone.url', 'https://hone.test/ingest');
+    config()->set('hone.token', 'secret-token');
+    config()->set('nightwatch.enabled', true);
+
+    (new HoneClientServiceProvider(app()))->register();
+
+    expect(config('nightwatch.enabled'))->toBeTrue();
+});
+
+it('does not resolve the contracts nudge when Hone is unconfigured', function (): void {
+    config()->set('hone.url', null);
+    config()->set('hone.token', null);
+    app()->bind(ContractsVersionNudge::class, fn (): never => throw new RuntimeException('nudge resolved'));
+
+    runHoneClientBootedRebind();
+
+    expect(true)->toBeTrue();
 });
 
 it('stays inert and logs a warning when only url is configured', function (): void {
@@ -566,6 +618,9 @@ it('nudges once when the stored contracts major changes', function (): void {
     $path = useHoneClientTempApp();
     $marker = $path.'/storage/framework/hone/contracts-major';
 
+    config()->set('hone.url', 'https://hone.test/ingest');
+    config()->set('hone.token', 'secret-token');
+
     File::ensureDirectoryExists(dirname($marker));
     File::put($marker, '0');
     Log::spy();
@@ -583,6 +638,9 @@ it('does not nudge when the stored contracts major matches', function (): void {
     $path = useHoneClientTempApp();
     $marker = $path.'/storage/framework/hone/contracts-major';
 
+    config()->set('hone.url', 'https://hone.test/ingest');
+    config()->set('hone.token', 'secret-token');
+
     File::ensureDirectoryExists(dirname($marker));
     File::put($marker, (string) Envelope::VERSION);
     Log::spy();
@@ -595,6 +653,9 @@ it('does not nudge when the stored contracts major matches', function (): void {
 it('persists contracts major without nudging on first run', function (): void {
     $path = useHoneClientTempApp();
     $marker = $path.'/storage/framework/hone/contracts-major';
+
+    config()->set('hone.url', 'https://hone.test/ingest');
+    config()->set('hone.token', 'secret-token');
 
     Log::spy();
 

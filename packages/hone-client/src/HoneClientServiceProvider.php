@@ -11,6 +11,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Nightwatch\Core;
@@ -23,6 +24,11 @@ final class HoneClientServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/hone.php', 'hone');
+
+        if (! Env::getRepository()->has('NIGHTWATCH_ENABLED')
+            && (blank(config('hone.url')) || blank(config('hone.token')))) {
+            config()->set('nightwatch.enabled', false);
+        }
 
         $this->app->bind(HoneIngest::class, function (Application $app): HoneIngest {
             return new HoneIngest(
@@ -52,8 +58,6 @@ final class HoneClientServiceProvider extends ServiceProvider
             ]);
         }
 
-        $this->app->make(ContractsVersionNudge::class)->check();
-
         $this->app->booted(function (): void {
             $url = config('hone.url');
             $token = config('hone.token');
@@ -67,6 +71,8 @@ final class HoneClientServiceProvider extends ServiceProvider
 
                 return;
             }
+
+            $this->app->make(ContractsVersionNudge::class)->check();
 
             if (! $this->app->bound(Core::class)) {
                 return;
