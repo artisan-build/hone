@@ -27,6 +27,9 @@ final class RawEvent extends Model
     {
         return [
             'payload' => 'array',
+            'response' => 'array',
+            'ran_queries' => 'boolean',
+            'asn' => 'integer',
             'occurred_at' => 'datetime',
         ];
     }

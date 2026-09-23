@@ -9,8 +9,10 @@ use ArtisanBuild\HoneServer\Commands\HealthCommand;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
+use ArtisanBuild\HoneServer\Contracts\AsnLookup;
 use ArtisanBuild\HoneServer\Database\HoneConnectionConfig;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
+use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
@@ -22,6 +24,12 @@ final class HoneServerServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/hone-server.php', 'hone-server');
         $this->declareMcpSurface();
+
+        $this->app->singleton(AsnLookup::class, function (): AsnLookup {
+            $path = config('hone-server.asn.iptoasn_path');
+
+            return new IptoAsnLookup(is_string($path) ? $path : null);
+        });
 
         $this->registerTelemetryConnection();
     }
