@@ -13,7 +13,10 @@ use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
 
 uses(WithCredentials::class);
 
@@ -270,6 +273,7 @@ it('classifies background execution records and compatibility aliases', function
         sentAt: '2026-06-09T12:00:00+00:00',
         records: [
             ['v' => 1, 't' => 'scheduled-task', 'name' => 'schedule:run', 'status' => 'processed', 'queries' => 0],
+            ['v' => 1, 't' => 'queued-job', 'name' => 'SendWelcomeEmail', 'queries' => 0],
             ['v' => 1, 't' => 'job-attempt', 'name' => 'SendWelcomeEmail', 'status' => 'processed', 'queries' => 4],
             ['t' => 'artisan-command', 'name' => 'reports:build', 'hasQueries' => 'true'],
         ],
@@ -279,9 +283,37 @@ it('classifies background execution records and compatibility aliases', function
 
     $events = RawEvent::query()->orderBy('id')->get();
 
-    expect($events->pluck('actor')->all())->toBe(['scheduled', 'job', 'command'])
-        ->and($events->pluck('ran_queries')->all())->toBe([false, true, true]);
+    expect($events->pluck('actor')->all())->toBe(['scheduled', null, 'job', 'command'])
+        ->and($events->pluck('ran_queries')->all())->toBe([false, null, true, true]);
 });
+
+it('falls back to the remote IP when CF-Connecting-IP is unusable', function (string $cloudflareIp): void {
+    $job = new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: null,
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [[
+            'v' => 1,
+            't' => 'request',
+            'method' => 'GET',
+            'route_path' => '/',
+            'user' => '',
+            'queries' => 0,
+            'ip' => '8.8.8.8',
+            'headers' => json_encode(['CF-Connecting-IP' => [$cloudflareIp]], JSON_THROW_ON_ERROR),
+        ]],
+    );
+
+    $job->handle(new IptoAsnLookup(__DIR__.'/Fixtures/ip2asn.tsv'));
+
+    $event = RawEvent::query()->sole();
+
+    expect($event->client_ip)->toBe('8.8.8.8')
+        ->and($event->asn)->toBe(15169);
+})->with([
+    'malformed' => ['not-an-ip'],
+    'private' => ['10.0.0.1'],
+]);
 
 it('resolves only public addresses from the local iptoasn fixture', function (?string $ipAddress, ?int $expectedAsn): void {
     $lookup = new IptoAsnLookup(__DIR__.'/Fixtures/ip2asn.tsv');
@@ -289,6 +321,8 @@ it('resolves only public addresses from the local iptoasn fixture', function (?s
     expect($lookup->lookup($ipAddress))->toBe($expectedAsn);
 })->with([
     'public address' => ['1.1.1.1', 13335],
+    'unknown public IPv4' => ['9.9.9.9', null],
+    'unknown public IPv6' => ['2606:4700:4700::1111', null],
     'RFC1918' => ['10.10.10.10', null],
     'loopback' => ['127.0.0.1', null],
     'link-local' => ['169.254.1.1', null],
@@ -297,6 +331,95 @@ it('resolves only public addresses from the local iptoasn fixture', function (?s
     'malformed' => ['not-an-ip', null],
     'absent' => [null, null],
 ]);
+
+it('uses a sparse index and bounds its exact-IP cache', function (): void {
+    $path = tempnam(sys_get_temp_dir(), 'hone-asn-');
+
+    expect($path)->toBeString();
+
+    /** @var string $path */
+    $firstAddress = ip2long('11.0.0.0');
+    $lines = [];
+
+    for ($offset = 0; $offset < 4096; $offset++) {
+        $address = long2ip($firstAddress + $offset);
+        $lines[] = "{$address}\t{$address}\t".(64512 + $offset)."\tZZ\tFixture";
+    }
+
+    file_put_contents($path, implode("\n", $lines)."\n");
+
+    try {
+        $lookup = new IptoAsnLookup($path, cacheLimit: 2, indexStride: 16);
+
+        expect($lookup->lookup('11.0.15.255'))->toBe(68607);
+
+        $reflection = new ReflectionClass($lookup);
+        $index = $reflection->getProperty('index')->getValue($lookup);
+        $inspectedLines = $reflection->getProperty('lastLookupInspectedLines')->getValue($lookup);
+
+        expect($index)->toBeArray()
+            ->and($index[4])->toHaveCount(256)
+            ->and($inspectedLines)->toBeLessThanOrEqual(16);
+
+        $lookup->lookup('11.0.0.0');
+        $lookup->lookup('11.0.0.1');
+
+        $cache = $reflection->getProperty('cache')->getValue($lookup);
+
+        expect($cache)->toHaveCount(2)
+            ->and(array_key_exists('11.0.15.255', $cache))->toBeFalse();
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('refreshes its index and cache when the TSV is replaced', function (): void {
+    $path = tempnam(sys_get_temp_dir(), 'hone-asn-');
+
+    expect($path)->toBeString();
+
+    /** @var string $path */
+    file_put_contents($path, "1.1.1.0\t1.1.1.255\t13335\tUS\tFirst\n");
+    $lookup = new IptoAsnLookup($path);
+
+    try {
+        expect($lookup->lookup('1.1.1.1'))->toBe(13335);
+
+        $replacement = $path.'.new';
+        file_put_contents($replacement, "1.1.1.0\t1.1.1.255\t64500\tUS\tReplacement\n");
+        rename($replacement, $path);
+
+        expect($lookup->lookup('1.1.1.1'))->toBe(64500);
+
+        file_put_contents($path, "1.1.1.0\t1.1.1.255\t64501\tUS\tChanged in place\n");
+
+        expect($lookup->lookup('1.1.1.1'))->toBe(64501);
+    } finally {
+        @unlink($path);
+        @unlink($path.'.new');
+    }
+});
+
+it('returns null when the TSV is missing or unreadable', function (): void {
+    $missingPath = sys_get_temp_dir().'/hone-asn-missing-'.bin2hex(random_bytes(8));
+
+    expect((new IptoAsnLookup($missingPath))->lookup('1.1.1.1'))->toBeNull();
+
+    $unreadablePath = tempnam(sys_get_temp_dir(), 'hone-asn-');
+
+    expect($unreadablePath)->toBeString();
+
+    /** @var string $unreadablePath */
+    file_put_contents($unreadablePath, "1.1.1.0\t1.1.1.255\t13335\tUS\tFixture\n");
+    chmod($unreadablePath, 0000);
+
+    try {
+        expect((new IptoAsnLookup($unreadablePath))->lookup('1.1.1.1'))->toBeNull();
+    } finally {
+        chmod($unreadablePath, 0600);
+        @unlink($unreadablePath);
+    }
+});
 
 it('frames telemetry queue processing as package system authority and cleans up afterward', function (): void {
     $job = new ProcessTelemetryBatch('checkout', null, now()->toAtomString(), []);
@@ -362,4 +485,51 @@ it('persists after response on sync queues using the token app instead of envelo
         ->and($events->pluck('app')->unique()->values()->all())->toBe(['checkout'])
         ->and($events->pluck('app')->all())->not->toContain('forged-app')
         ->and($events->pluck('record_type')->all())->toBe(['query', 'request']);
+});
+
+it('adds execution enrichment columns without losing populated legacy raw events', function (): void {
+    Schema::connection('hone')->table('raw_events', function (Blueprint $table): void {
+        $table->dropColumn([
+            'actor',
+            'ran_queries',
+            'response',
+            'user_agent',
+            'client_ip',
+            'asn',
+        ]);
+    });
+
+    DB::connection('hone')->table('raw_events')->insert([
+        'app' => 'legacy-app',
+        'record_type' => 'request',
+        'deploy' => null,
+        'occurred_at' => '2026-06-09T12:00:00+00:00',
+        'normalized_key' => 'GET /legacy',
+        'payload' => json_encode(['t' => 'request', 'route_path' => '/legacy'], JSON_THROW_ON_ERROR),
+    ]);
+
+    $migration = require __DIR__.'/../database/migrations/2026_09_23_124046_add_execution_enrichment_to_raw_events_table.php';
+    $migration->up();
+
+    $event = DB::connection('hone')->table('raw_events')->sole();
+
+    expect(Schema::connection('hone')->hasColumns('raw_events', [
+        'actor',
+        'ran_queries',
+        'response',
+        'user_agent',
+        'client_ip',
+        'asn',
+    ]))->toBeTrue()
+        ->and($event->app)->toBe('legacy-app')
+        ->and(json_decode((string) $event->payload, true, flags: JSON_THROW_ON_ERROR))->toBe([
+            't' => 'request',
+            'route_path' => '/legacy',
+        ])
+        ->and($event->actor)->toBeNull()
+        ->and($event->ran_queries)->toBeNull()
+        ->and($event->response)->toBeNull()
+        ->and($event->user_agent)->toBeNull()
+        ->and($event->client_ip)->toBeNull()
+        ->and($event->asn)->toBeNull();
 });

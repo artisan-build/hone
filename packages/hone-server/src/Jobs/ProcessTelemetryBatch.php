@@ -8,6 +8,7 @@ use ArtisanBuild\BuiltForCloud\Contracts\SystemAuthorityQueueEntry;
 use ArtisanBuild\HoneServer\Contracts\AsnLookup;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
+use ArtisanBuild\HoneServer\Support\PublicIp;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -128,7 +129,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
         $actor = match ($executionType) {
             'request', 'http-request' => $this->hasAuthenticatedUser($record) ? 'human' : 'guest',
             'scheduled-task', 'scheduled' => 'scheduled',
-            'queued-job', 'job', 'job-attempt' => 'job',
+            'job-attempt' => 'job',
             'command', 'artisan-command' => 'command',
             default => null,
         };
@@ -245,7 +246,12 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
     private function clientIp(array $record, array $headers): ?string
     {
         $cloudflareIp = $this->header($headers, 'cf-connecting-ip');
-        $value = $cloudflareIp ?? $this->firstScalar($record, ['ip', 'remote_ip', 'remoteIp', 'client_ip', 'clientIp']);
+
+        if (PublicIp::isValid($cloudflareIp)) {
+            return $cloudflareIp;
+        }
+
+        $value = $this->firstScalar($record, ['ip', 'remote_ip', 'remoteIp', 'client_ip', 'clientIp']);
 
         return is_string($value) && filter_var($value, FILTER_VALIDATE_IP) !== false ? $value : null;
     }
