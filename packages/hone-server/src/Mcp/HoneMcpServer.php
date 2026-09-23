@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp;
 
+use ArtisanBuild\HoneServer\Mcp\Tools\AwakeSegmentsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
@@ -57,5 +59,7 @@ final class HoneMcpServer extends Server
         CommandStatsTool::class,
         LogVolumeByLevelTool::class,
         TopUsersTool::class,
+        AwakeSegmentsTool::class,
+        BackgroundDbActivityTool::class,
     ];
 }

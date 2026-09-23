@@ -32,6 +32,7 @@ final class ActivityTimelineRollup
                     app,
                     actor,
                     ran_queries,
+                    normalized_key,
                     floor(extract(epoch FROM occurred_at) / 60)::bigint * 60 AS bucket_epoch
             ), grouped_events AS (
                 SELECT
@@ -48,6 +49,17 @@ final class ActivityTimelineRollup
                 WHERE actor IN ('human', 'guest')
                     OR (actor IN ('scheduled', 'job') AND ran_queries IS NOT NULL)
                 GROUP BY app, bucket_epoch
+            ), grouped_background_events AS (
+                SELECT
+                    app,
+                    bucket_epoch,
+                    actor AS activity_type,
+                    normalized_key AS identity,
+                    count(*)::bigint AS runs_with_queries
+                FROM claimed_events
+                WHERE actor IN ('scheduled', 'job')
+                    AND ran_queries IS TRUE
+                GROUP BY app, bucket_epoch, actor, normalized_key
             ), upserted_buckets AS (
                 INSERT INTO activity_buckets (
                     app,
@@ -86,12 +98,40 @@ final class ActivityTimelineRollup
                     jobs_without_queries = activity_buckets.jobs_without_queries + EXCLUDED.jobs_without_queries,
                     updated_at = EXCLUDED.updated_at
                 RETURNING 1
+            ), upserted_background_buckets AS (
+                INSERT INTO background_activity_buckets (
+                    app,
+                    bucket_minute,
+                    activity_type,
+                    identity,
+                    runs_with_queries,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    app,
+                    to_timestamp(bucket_epoch),
+                    activity_type,
+                    identity,
+                    runs_with_queries,
+                    ?,
+                    ?
+                FROM grouped_background_events
+                ON CONFLICT (app, bucket_minute, activity_type, identity)
+                DO UPDATE SET
+                    runs_with_queries = background_activity_buckets.runs_with_queries + EXCLUDED.runs_with_queries,
+                    updated_at = EXCLUDED.updated_at
+                RETURNING 1
             )
-            SELECT count(*)::bigint AS bucket_count FROM upserted_buckets
+            SELECT
+                (SELECT count(*)::bigint FROM upserted_buckets) AS bucket_count,
+                (SELECT count(*)::bigint FROM upserted_background_buckets) AS background_bucket_count
         SQL, [
             $timestamp,
             $dayStart->toIso8601String(),
             $dayStart->addDay()->toIso8601String(),
+            $timestamp,
+            $timestamp,
             $timestamp,
             $timestamp,
         ]);
