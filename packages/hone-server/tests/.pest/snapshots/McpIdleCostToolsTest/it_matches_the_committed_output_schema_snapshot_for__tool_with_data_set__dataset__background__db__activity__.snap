@@ -1,0 +1,77 @@
+{
+    "type": "object",
+    "required": [
+        "app",
+        "window",
+        "background_classes",
+        "frequency_definition",
+        "activities"
+    ],
+    "properties": {
+        "app": {
+            "type": "string"
+        },
+        "window": {
+            "type": "object",
+            "required": [
+                "from",
+                "to",
+                "bounds",
+                "minutes"
+            ],
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "bounds": {
+                    "type": "string"
+                },
+                "minutes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "background_classes": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "frequency_definition": {
+            "type": "string"
+        },
+        "activities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "class",
+                    "name",
+                    "runs",
+                    "active_minutes",
+                    "runs_per_minute"
+                ],
+                "properties": {
+                    "class": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "runs": {
+                        "type": "integer"
+                    },
+                    "active_minutes": {
+                        "type": "integer"
+                    },
+                    "runs_per_minute": {
+                        "type": "integer"
+                    }
+                }
+            }
+        }
+    }
+}

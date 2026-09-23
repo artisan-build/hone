@@ -59,13 +59,18 @@ final class PruneCommand extends SystemAuthorityCommand
             ->where('bucket_minute', '<', CarbonImmutable::now('UTC')->subDays($timelineDays))
             ->delete();
 
+        $requestActivityBucketsDeleted = DB::connection('hone')->table('request_activity_buckets')
+            ->where('bucket_minute', '<', CarbonImmutable::now('UTC')->subDays($timelineDays))
+            ->delete();
+
         $this->info(sprintf(
-            'Pruned %d raw events, %d samples, %d aggregates, %d activity buckets, and %d background identity buckets.',
+            'Pruned %d raw events, %d samples, %d aggregates, %d activity buckets, %d background identity buckets, and %d request fact buckets.',
             $rawDeleted,
             $samplesDeleted,
             $aggregatesDeleted,
             $activityBucketsDeleted,
             $backgroundActivityBucketsDeleted,
+            $requestActivityBucketsDeleted,
         ));
 
         return self::SUCCESS;

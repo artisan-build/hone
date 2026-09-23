@@ -3,13 +3,18 @@
 declare(strict_types=1);
 
 use ArtisanBuild\HoneServer\Contracts\AsnLookup;
+use ArtisanBuild\HoneServer\Contracts\NameserverResolver;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\AwakeSegmentsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\EdgeProfileTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestDbRoutesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestTrafficClustersTool;
 use ArtisanBuild\HoneServer\Models\ActivityBucket;
 use ArtisanBuild\HoneServer\Models\BackgroundActivityBucket;
 use ArtisanBuild\HoneServer\Models\RawEvent;
+use ArtisanBuild\HoneServer\Models\RequestActivityBucket;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -249,12 +254,159 @@ it('durably lists named background database activity through ingest rollup and r
         ->and($afterPrune['activities'])->toBe($beforePrune['activities']);
 });
 
-it('registers both read-only tools and explains both attribution metrics in discovery metadata', function (): void {
+it('returns query-running guest routes with exact response facts and excludes non-query routes', function (): void {
+    seedIdleCostScenario('scenario-a', guestQueries: true);
+    RequestActivityBucket::factory()->create([
+        'app' => 'scenario-a',
+        'bucket_minute' => '2026-06-09 09:13:00+00',
+        'actor' => 'guest',
+        'path' => '/static',
+        'user_agent' => 'ScenarioBot/1.0',
+        'asn' => 13335,
+        'ran_queries' => false,
+        'sets_cookie' => false,
+        'cache_control' => 'public, max-age=300',
+        'vary' => 'Accept-Encoding',
+        'hits' => 1,
+    ]);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(GuestDbRoutesTool::class, idleCostWindow('scenario-a'))->assertOk());
+
+    expect($payload['routes'])->toBe([
+        [
+            'path' => '/',
+            'hits' => 36,
+            'response_facts' => [[
+                'sets_cookie' => true,
+                'cache_control' => 'no-cache, private',
+                'vary' => 'Cookie',
+                'hits' => 36,
+            ]],
+        ],
+    ])->and(collect($payload['routes'])->pluck('path')->all())->not->toContain('/static');
+});
+
+it('attributes scenario A guest wake time to one path user agent and ASN cluster', function (): void {
+    seedIdleCostScenario('scenario-a', guestQueries: true);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(GuestTrafficClustersTool::class, idleCostWindow('scenario-a'))->assertOk());
+
+    expect($payload['window']['compute_idle_minutes'])->toBe(5)
+        ->and($payload['total_clusters'])->toBe(1)
+        ->and($payload['clusters'])->toBe([[
+            'path' => '/',
+            'user_agent' => 'ScenarioBot/1.0',
+            'asn' => 13335,
+            'volume' => 36,
+            'awake_minutes' => 108,
+        ]]);
+});
+
+it('caps guest route cluster and edge profile response sizes deterministically', function (): void {
+    foreach (range(1, 101) as $route) {
+        RequestActivityBucket::factory()->create([
+            'app' => 'bounded-output',
+            'bucket_minute' => '2026-06-09 09:13:00+00',
+            'actor' => 'guest',
+            'path' => sprintf('/route-%03d', $route),
+            'host' => 'bounded.example.com',
+            'user_agent' => sprintf('Bot/%03d', $route),
+            'asn' => 64000 + $route,
+            'ran_queries' => true,
+            'sets_cookie' => false,
+            'cache_control' => 'public, max-age=300',
+            'vary' => 'Accept-Encoding',
+            'hits' => 1,
+        ]);
+    }
+
+    $window = idleCostWindow('bounded-output');
+    $routes = honeToolPayload(HoneMcpServer::tool(GuestDbRoutesTool::class, $window)->assertOk());
+    $clusters = honeToolPayload(HoneMcpServer::tool(GuestTrafficClustersTool::class, $window)->assertOk());
+    app()->instance(NameserverResolver::class, nameserverResolver([]));
+    $edge = honeToolPayload(HoneMcpServer::tool(EdgeProfileTool::class, ['app' => 'bounded-output'])->assertOk());
+
+    expect($routes['total_routes'])->toBe(101)
+        ->and($routes['routes'])->toHaveCount(100)
+        ->and($routes['truncated'])->toBeTrue()
+        ->and($clusters['total_clusters'])->toBe(101)
+        ->and($clusters['clusters'])->toHaveCount(100)
+        ->and($clusters['truncated'])->toBeTrue()
+        ->and($edge['total_routes'])->toBe(101)
+        ->and($edge['routes'])->toHaveCount(100)
+        ->and($edge['truncated'])->toBeTrue();
+});
+
+it('uses only normalized nameserver records for Cloudflare detection and ignores CF-Ray', function (): void {
+    seedEdgeProfile('edge-app');
+    RawEvent::factory()->create([
+        'app' => 'edge-app',
+        'record_type' => 'request',
+        'actor' => 'guest',
+        'payload' => ['headers' => ['CF-Ray' => ['decoy-ray']]],
+    ]);
+
+    app()->instance(NameserverResolver::class, nameserverResolver(['ADA.NS.CLOUDFLARE.COM.']));
+    $cloudflare = honeToolPayload(HoneMcpServer::tool(EdgeProfileTool::class, ['app' => 'edge-app'])->assertOk());
+
+    app()->instance(NameserverResolver::class, nameserverResolver(['ns1.example.net.', 'NS2.EXAMPLE.NET']));
+    $notCloudflare = honeToolPayload(HoneMcpServer::tool(EdgeProfileTool::class, ['app' => 'edge-app'])->assertOk());
+
+    expect($cloudflare['domain'])->toBe('shop.example.com')
+        ->and($cloudflare['nameservers'])->toBe(['ada.ns.cloudflare.com'])
+        ->and($cloudflare['on_cloudflare'])->toBeTrue()
+        ->and($cloudflare['routes'][0]['varies_by_user'])->toBeTrue()
+        ->and($notCloudflare['nameservers'])->toBe(['ns1.example.net', 'ns2.example.net'])
+        ->and($notCloudflare['on_cloudflare'])->toBeFalse();
+});
+
+it('keeps guest route and cluster facts after raw telemetry is pruned', function (): void {
+    $records = [];
+
+    foreach ([13, 16, 19] as $minute) {
+        $records[] = guestRequestRecord('/', sprintf('2026-06-09T09:%02d:00Z', $minute), true);
+    }
+
+    $records[] = guestRequestRecord('/static', '2026-06-09T09:13:00Z', false);
+
+    (new ProcessTelemetryBatch(
+        app: 'durable-guests',
+        deploy: null,
+        sentAt: '2026-06-09T09:19:00Z',
+        records: $records,
+    ))->handle(app(AsnLookup::class));
+
+    Artisan::call('hone:rollup');
+
+    $window = idleCostWindow(
+        'durable-guests',
+        from: '2026-06-09T09:13:00Z',
+        to: '2026-06-09T09:19:00Z',
+    );
+    $routesBeforePrune = honeToolPayload(HoneMcpServer::tool(GuestDbRoutesTool::class, $window)->assertOk());
+    $clustersBeforePrune = honeToolPayload(HoneMcpServer::tool(GuestTrafficClustersTool::class, $window)->assertOk());
+
+    config()->set('hone-server.retention.raw_hours', 1);
+    Artisan::call('hone:prune');
+
+    expect(RawEvent::query()->where('app', 'durable-guests')->count())->toBe(0)
+        ->and(RequestActivityBucket::query()->where('app', 'durable-guests')->count())->toBe(4)
+        ->and(honeToolPayload(HoneMcpServer::tool(GuestDbRoutesTool::class, $window)->assertOk()))->toBe($routesBeforePrune)
+        ->and(honeToolPayload(HoneMcpServer::tool(GuestTrafficClustersTool::class, $window)->assertOk()))->toBe($clustersBeforePrune);
+});
+
+it('registers all five idle-cost tools and explains both attribution metrics in discovery metadata', function (): void {
     $property = new ReflectionProperty(HoneMcpServer::class, 'tools');
     $tools = $property->getDefaultValue();
     $description = (new AwakeSegmentsTool)->toArray()['description'];
 
-    expect($tools)->toContain(AwakeSegmentsTool::class, BackgroundDbActivityTool::class)
+    expect($tools)->toContain(
+        AwakeSegmentsTool::class,
+        BackgroundDbActivityTool::class,
+        GuestDbRoutesTool::class,
+        GuestTrafficClustersTool::class,
+        EdgeProfileTool::class,
+    )
         ->and($description)->toContain('partitioned minutes')
         ->and($description)->toContain('sustained_minutes')
         ->and($description)->toContain('overlap');
@@ -272,6 +424,17 @@ it('validates timeline windows and idle timeouts', function (string $tool, array
     'background missing to' => [BackgroundDbActivityTool::class, [
         'app' => 'checkout',
         'from' => '2026-06-09T09:00:00+00:00',
+    ]],
+    'guest routes missing to' => [GuestDbRoutesTool::class, [
+        'app' => 'checkout',
+        'from' => '2026-06-09T09:00:00+00:00',
+    ]],
+    'guest clusters missing from' => [GuestTrafficClustersTool::class, [
+        'app' => 'checkout',
+        'to' => '2026-06-09T10:58:00+00:00',
+    ]],
+    'edge oversized app id' => [EdgeProfileTool::class, [
+        'app' => str_repeat('a', 256),
     ]],
     'reversed window' => [AwakeSegmentsTool::class, [
         ...idleCostWindow('checkout'),
@@ -317,7 +480,48 @@ it('accepts exact timeline window and idle timeout bounds', function (): void {
         'from' => '2026-05-09T09:00:00Z',
         'to' => '2026-06-09T09:00:00Z',
     ])->assertOk();
+
+    HoneMcpServer::tool(GuestDbRoutesTool::class, [
+        'app' => 'checkout',
+        'from' => '2026-05-09T09:00:00Z',
+        'to' => '2026-06-09T09:00:00Z',
+    ])->assertOk();
+
+    HoneMcpServer::tool(GuestTrafficClustersTool::class, [
+        'app' => 'checkout',
+        'from' => '2026-05-09T09:00:00Z',
+        'to' => '2026-06-09T09:00:00Z',
+    ])->assertOk();
+
+    HoneMcpServer::tool(EdgeProfileTool::class, ['app' => str_repeat('a', 255)])->assertOk();
 });
+
+it('matches the committed output schema snapshot for :tool', function (string $tool): void {
+    seedIdleCostScenario('snapshot-app', guestQueries: true, backgroundQueries: true);
+    seedEdgeProfile('snapshot-app');
+    app()->instance(NameserverResolver::class, nameserverResolver(['ada.ns.cloudflare.com']));
+
+    $arguments = match ($tool) {
+        AwakeSegmentsTool::class => [
+            ...idleCostWindow('snapshot-app'),
+            'compute_idle_minutes' => 5,
+            'db_idle_minutes' => 5,
+        ],
+        BackgroundDbActivityTool::class,
+        GuestDbRoutesTool::class,
+        GuestTrafficClustersTool::class => idleCostWindow('snapshot-app'),
+        EdgeProfileTool::class => ['app' => 'snapshot-app'],
+    };
+    $payload = honeToolPayload(HoneMcpServer::tool($tool, $arguments)->assertOk());
+
+    expect(honeOutputSchema($payload))->toMatchSnapshot();
+})->with([
+    'awake_segments' => AwakeSegmentsTool::class,
+    'background_db_activity' => BackgroundDbActivityTool::class,
+    'guest_db_routes' => GuestDbRoutesTool::class,
+    'guest_traffic_clusters' => GuestTrafficClustersTool::class,
+    'edge_profile' => EdgeProfileTool::class,
+]);
 
 /**
  * @return array<string, mixed>
@@ -364,6 +568,21 @@ function seedIdleCostScenario(string $app, bool $guestQueries, bool $backgroundQ
         if ($guestQueries) {
             incrementActivity($buckets, $minute, 'guest_requests_with_queries');
         }
+
+        RequestActivityBucket::factory()->create([
+            'app' => $app,
+            'bucket_minute' => $minute,
+            'actor' => 'guest',
+            'path' => $guestQueries ? '/' : '/static',
+            'host' => 'shop.example.com',
+            'user_agent' => 'ScenarioBot/1.0',
+            'asn' => 13335,
+            'ran_queries' => $guestQueries,
+            'sets_cookie' => $guestQueries,
+            'cache_control' => $guestQueries ? 'no-cache, private' : 'public, max-age=300',
+            'vary' => $guestQueries ? 'Cookie' : 'Accept-Encoding',
+            'hits' => 1,
+        ]);
     }
 
     if ($backgroundQueries) {
@@ -479,4 +698,107 @@ function backgroundOnlySegment(): array
             'background' => ['minutes' => 7, 'sustained_minutes' => 7],
         ],
     ];
+}
+
+function seedEdgeProfile(string $app): void
+{
+    RequestActivityBucket::factory()->create([
+        'app' => $app,
+        'bucket_minute' => '2026-06-09 09:13:00+00',
+        'actor' => 'guest',
+        'path' => '/',
+        'host' => 'shop.example.com',
+        'user_agent' => 'ScenarioBot/1.0',
+        'asn' => 13335,
+        'ran_queries' => true,
+        'sets_cookie' => true,
+        'cache_control' => 'no-cache, private',
+        'vary' => 'Cookie',
+        'hits' => 1,
+    ]);
+    RequestActivityBucket::factory()->create([
+        'app' => $app,
+        'bucket_minute' => '2026-06-09 09:14:00+00',
+        'actor' => 'human',
+        'path' => '/',
+        'host' => 'shop.example.com',
+        'user_agent' => null,
+        'asn' => 13335,
+        'ran_queries' => true,
+        'sets_cookie' => true,
+        'cache_control' => 'private, no-store',
+        'vary' => 'Cookie',
+        'hits' => 1,
+    ]);
+}
+
+function nameserverResolver(array $nameservers): NameserverResolver
+{
+    return new class($nameservers) implements NameserverResolver
+    {
+        /** @param list<string> $nameservers */
+        public function __construct(private readonly array $nameservers) {}
+
+        public function resolve(string $domain): array
+        {
+            return $this->nameservers;
+        }
+    };
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function guestRequestRecord(string $path, string $timestamp, bool $ranQueries): array
+{
+    return [
+        'v' => 1,
+        't' => 'request',
+        'method' => 'GET',
+        'route_path' => $path,
+        'user' => '',
+        'queries' => $ranQueries ? 1 : 0,
+        'ip' => '1.1.1.1',
+        'timestamp' => $timestamp,
+        'headers' => json_encode([
+            'Host' => ['shop.example.com'],
+            'User-Agent' => ['ScenarioBot/1.0'],
+        ], JSON_THROW_ON_ERROR),
+        'context' => json_encode([
+            'hone.response' => [
+                'sets_cookie' => $ranQueries,
+                'cache_control' => $ranQueries ? 'no-cache, private' : 'public, max-age=300',
+                'vary' => $ranQueries ? 'Cookie' : 'Accept-Encoding',
+            ],
+        ], JSON_THROW_ON_ERROR),
+    ];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function honeOutputSchema(mixed $value): array
+{
+    if (is_array($value)) {
+        if (array_is_list($value)) {
+            return [
+                'type' => 'array',
+                'items' => $value === [] ? null : honeOutputSchema($value[0]),
+            ];
+        }
+
+        return [
+            'type' => 'object',
+            'required' => array_keys($value),
+            'properties' => array_map(honeOutputSchema(...), $value),
+        ];
+    }
+
+    return ['type' => match (get_debug_type($value)) {
+        'bool' => 'boolean',
+        'int' => 'integer',
+        'float' => 'number',
+        'null' => 'null',
+        default => get_debug_type($value),
+    }];
 }

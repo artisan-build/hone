@@ -1,0 +1,97 @@
+{
+    "type": "object",
+    "required": [
+        "app",
+        "window",
+        "limits",
+        "total_routes",
+        "truncated",
+        "routes"
+    ],
+    "properties": {
+        "app": {
+            "type": "string"
+        },
+        "window": {
+            "type": "object",
+            "required": [
+                "from",
+                "to",
+                "bounds"
+            ],
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "bounds": {
+                    "type": "string"
+                }
+            }
+        },
+        "limits": {
+            "type": "object",
+            "required": [
+                "max_routes"
+            ],
+            "properties": {
+                "max_routes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "total_routes": {
+            "type": "integer"
+        },
+        "truncated": {
+            "type": "boolean"
+        },
+        "routes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "path",
+                    "hits",
+                    "response_facts"
+                ],
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "hits": {
+                        "type": "integer"
+                    },
+                    "response_facts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "sets_cookie",
+                                "cache_control",
+                                "vary",
+                                "hits"
+                            ],
+                            "properties": {
+                                "sets_cookie": {
+                                    "type": "boolean"
+                                },
+                                "cache_control": {
+                                    "type": "string"
+                                },
+                                "vary": {
+                                    "type": "string"
+                                },
+                                "hits": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

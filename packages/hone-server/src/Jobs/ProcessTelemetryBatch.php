@@ -121,7 +121,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
 
     /**
      * @param  array<string, mixed>  $record
-     * @return array{actor: string, ran_queries: bool|null, response: array<string, mixed>|null, user_agent: string|null, client_ip: string|null, asn: int|null}|array{}
+     * @return array{actor: string, ran_queries: bool|null, response: array<string, mixed>|null, request_path: string|null, request_host: string|null, user_agent: string|null, client_ip: string|null, asn: int|null}|array{}
      */
     private function enrichment(string $recordType, array $record, AsnLookup $asnLookup): array
     {
@@ -146,6 +146,8 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
             'actor' => $actor,
             'ran_queries' => $this->booleanValue($record, ['queries', 'ran_queries', 'ranQueries', 'has_queries', 'hasQueries']),
             'response' => $isRequest ? $this->responseContext($record) : null,
+            'request_path' => $isRequest ? $this->firstScalar($record, ['route_path', 'route', 'uri']) : null,
+            'request_host' => $isRequest ? $this->requestHost($record, $headers) : null,
             'user_agent' => $actor === 'guest' ? $this->userAgent($record, $headers) : null,
             'client_ip' => $clientIp,
             'asn' => $asnLookup->lookup($clientIp),
@@ -263,6 +265,27 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
     private function userAgent(array $record, array $headers): ?string
     {
         return $this->firstScalar($record, ['user_agent', 'userAgent']) ?? $this->header($headers, 'user-agent');
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @param  array<string, mixed>  $headers
+     */
+    private function requestHost(array $record, array $headers): ?string
+    {
+        $host = $this->firstScalar($record, ['host', 'hostname']) ?? $this->header($headers, 'host');
+
+        if ($host === null) {
+            return null;
+        }
+
+        $normalized = parse_url('http://'.$host, PHP_URL_HOST);
+
+        if (! is_string($normalized) || $normalized === '') {
+            return null;
+        }
+
+        return strtolower(rtrim($normalized, '.'));
     }
 
     /** @param array<string, mixed> $headers */
