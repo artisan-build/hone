@@ -39,7 +39,10 @@ use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\EdgeProfileTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ExceptionsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestDbRoutesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestTrafficClustersTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\LogVolumeByLevelTool;
@@ -170,7 +173,10 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
             CacheStatsTool::class,
             CommandStatsTool::class,
             DeploysTool::class,
+            EdgeProfileTool::class,
             ExceptionsTool::class,
+            GuestDbRoutesTool::class,
+            GuestTrafficClustersTool::class,
             IngestFreshnessTool::class,
             ListAppsTool::class,
             LogVolumeByLevelTool::class,

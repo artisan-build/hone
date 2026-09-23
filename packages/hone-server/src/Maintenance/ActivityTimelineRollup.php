@@ -33,6 +33,11 @@ final class ActivityTimelineRollup
                     actor,
                     ran_queries,
                     normalized_key,
+                    response,
+                    request_path,
+                    request_host,
+                    user_agent,
+                    asn,
                     floor(extract(epoch FROM occurred_at) / 60)::bigint * 60 AS bucket_epoch
             ), grouped_events AS (
                 SELECT
@@ -60,6 +65,44 @@ final class ActivityTimelineRollup
                 WHERE actor IN ('scheduled', 'job')
                     AND ran_queries IS TRUE
                 GROUP BY app, bucket_epoch, actor, normalized_key
+            ), grouped_request_events AS (
+                SELECT
+                    app,
+                    bucket_epoch,
+                    actor,
+                    request_path AS path,
+                    request_host AS host,
+                    user_agent,
+                    asn,
+                    ran_queries,
+                    CASE
+                        WHEN jsonb_typeof(response->'sets_cookie') = 'boolean'
+                        THEN (response->>'sets_cookie')::boolean
+                    END AS sets_cookie,
+                    CASE
+                        WHEN jsonb_typeof(response->'cache_control') = 'string'
+                        THEN response->>'cache_control'
+                    END AS cache_control,
+                    CASE
+                        WHEN jsonb_typeof(response->'vary') = 'string'
+                        THEN response->>'vary'
+                    END AS vary,
+                    count(*)::bigint AS hits
+                FROM claimed_events
+                WHERE actor IN ('human', 'guest')
+                    AND request_path IS NOT NULL
+                GROUP BY
+                    app,
+                    bucket_epoch,
+                    actor,
+                    request_path,
+                    request_host,
+                    user_agent,
+                    asn,
+                    ran_queries,
+                    sets_cookie,
+                    cache_control,
+                    vary
             ), upserted_buckets AS (
                 INSERT INTO activity_buckets (
                     app,
@@ -122,14 +165,67 @@ final class ActivityTimelineRollup
                     runs_with_queries = background_activity_buckets.runs_with_queries + EXCLUDED.runs_with_queries,
                     updated_at = EXCLUDED.updated_at
                 RETURNING 1
+            ), upserted_request_buckets AS (
+                INSERT INTO request_activity_buckets (
+                    app,
+                    bucket_minute,
+                    actor,
+                    path,
+                    host,
+                    user_agent,
+                    asn,
+                    ran_queries,
+                    sets_cookie,
+                    cache_control,
+                    vary,
+                    hits,
+                    dimensions_hash,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    app,
+                    to_timestamp(bucket_epoch),
+                    actor,
+                    path,
+                    host,
+                    user_agent,
+                    asn,
+                    ran_queries,
+                    sets_cookie,
+                    cache_control,
+                    vary,
+                    hits,
+                    md5(jsonb_build_array(
+                        actor,
+                        path,
+                        host,
+                        user_agent,
+                        asn,
+                        ran_queries,
+                        sets_cookie,
+                        cache_control,
+                        vary
+                    )::text),
+                    ?,
+                    ?
+                FROM grouped_request_events
+                ON CONFLICT (app, bucket_minute, dimensions_hash)
+                DO UPDATE SET
+                    hits = request_activity_buckets.hits + EXCLUDED.hits,
+                    updated_at = EXCLUDED.updated_at
+                RETURNING 1
             )
             SELECT
                 (SELECT count(*)::bigint FROM upserted_buckets) AS bucket_count,
-                (SELECT count(*)::bigint FROM upserted_background_buckets) AS background_bucket_count
+                (SELECT count(*)::bigint FROM upserted_background_buckets) AS background_bucket_count,
+                (SELECT count(*)::bigint FROM upserted_request_buckets) AS request_bucket_count
         SQL, [
             $timestamp,
             $dayStart->toIso8601String(),
             $dayStart->addDay()->toIso8601String(),
+            $timestamp,
+            $timestamp,
             $timestamp,
             $timestamp,
             $timestamp,

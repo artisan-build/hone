@@ -10,8 +10,10 @@ use ArtisanBuild\HoneServer\Commands\MaintainCommand;
 use ArtisanBuild\HoneServer\Commands\PruneCommand;
 use ArtisanBuild\HoneServer\Commands\RollupCommand;
 use ArtisanBuild\HoneServer\Contracts\AsnLookup;
+use ArtisanBuild\HoneServer\Contracts\NameserverResolver;
 use ArtisanBuild\HoneServer\Database\HoneConnectionConfig;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
+use ArtisanBuild\HoneServer\Support\DnsNameserverResolver;
 use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schedule;
@@ -30,6 +32,7 @@ final class HoneServerServiceProvider extends ServiceProvider
 
             return new IptoAsnLookup(is_string($path) ? $path : null);
         });
+        $this->app->singleton(NameserverResolver::class, DnsNameserverResolver::class);
 
         $this->registerTelemetryConnection();
     }

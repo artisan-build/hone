@@ -1,0 +1,128 @@
+{
+    "type": "object",
+    "required": [
+        "app",
+        "domain",
+        "domain_source",
+        "nameservers",
+        "on_cloudflare",
+        "cloudflare_detection",
+        "observation_window",
+        "limits",
+        "total_routes",
+        "truncated",
+        "routes"
+    ],
+    "properties": {
+        "app": {
+            "type": "string"
+        },
+        "domain": {
+            "type": "string"
+        },
+        "domain_source": {
+            "type": "string"
+        },
+        "nameservers": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "on_cloudflare": {
+            "type": "boolean"
+        },
+        "cloudflare_detection": {
+            "type": "string"
+        },
+        "observation_window": {
+            "type": "object",
+            "required": [
+                "from",
+                "to",
+                "bounds"
+            ],
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "bounds": {
+                    "type": "string"
+                }
+            }
+        },
+        "limits": {
+            "type": "object",
+            "required": [
+                "max_routes"
+            ],
+            "properties": {
+                "max_routes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "total_routes": {
+            "type": "integer"
+        },
+        "truncated": {
+            "type": "boolean"
+        },
+        "routes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "path",
+                    "hits",
+                    "varies_by_user",
+                    "response_facts"
+                ],
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "hits": {
+                        "type": "integer"
+                    },
+                    "varies_by_user": {
+                        "type": "boolean"
+                    },
+                    "response_facts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "actor",
+                                "sets_cookie",
+                                "cache_control",
+                                "vary",
+                                "hits"
+                            ],
+                            "properties": {
+                                "actor": {
+                                    "type": "string"
+                                },
+                                "sets_cookie": {
+                                    "type": "boolean"
+                                },
+                                "cache_control": {
+                                    "type": "string"
+                                },
+                                "vary": {
+                                    "type": "string"
+                                },
+                                "hits": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

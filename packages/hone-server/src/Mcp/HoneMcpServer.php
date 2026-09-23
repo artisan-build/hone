@@ -9,7 +9,10 @@ use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\EdgeProfileTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ExceptionsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestDbRoutesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestTrafficClustersTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\LogVolumeByLevelTool;
@@ -61,5 +64,8 @@ final class HoneMcpServer extends Server
         TopUsersTool::class,
         AwakeSegmentsTool::class,
         BackgroundDbActivityTool::class,
+        GuestDbRoutesTool::class,
+        GuestTrafficClustersTool::class,
+        EdgeProfileTool::class,
     ];
 }

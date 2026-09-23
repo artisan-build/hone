@@ -212,6 +212,7 @@ it('enriches real Nightwatch request records without changing their opaque paylo
             'ip' => '8.8.8.8',
             'headers' => json_encode([
                 'CF-Connecting-IP' => ['1.1.1.1'],
+                'Host' => ['checkout.example.com:443'],
                 'User-Agent' => ['Mozilla/5.0'],
             ], JSON_THROW_ON_ERROR),
             'context' => json_encode([
@@ -253,6 +254,8 @@ it('enriches real Nightwatch request records without changing their opaque paylo
         ->and($events->pluck('ran_queries')->all())->toBe([true, false, true])
         ->and($events[0]->client_ip)->toBe('1.1.1.1')
         ->and($events[0]->asn)->toBe(13335)
+        ->and($events[0]->request_path)->toBe('/')
+        ->and($events[0]->request_host)->toBe('checkout.example.com')
         ->and($events[0]->user_agent)->toBe('Mozilla/5.0')
         ->and($events[0]->response)->toBe([
             'status' => 200,
@@ -261,6 +264,7 @@ it('enriches real Nightwatch request records without changing their opaque paylo
         ])
         ->and($events[1]->client_ip)->toBe('1.1.1.1')
         ->and($events[1]->asn)->toBe(13335)
+        ->and($events[1]->request_path)->toBe('/static')
         ->and($events[1]->user_agent)->toBe('curl/8.0')
         ->and($events[2]->user_agent)->toBeNull()
         ->and($events->pluck('payload')->all())->toEqual($records);

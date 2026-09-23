@@ -1,0 +1,90 @@
+{
+    "type": "object",
+    "required": [
+        "app",
+        "window",
+        "attribution_definition",
+        "limits",
+        "total_clusters",
+        "truncated",
+        "clusters"
+    ],
+    "properties": {
+        "app": {
+            "type": "string"
+        },
+        "window": {
+            "type": "object",
+            "required": [
+                "from",
+                "to",
+                "bounds",
+                "compute_idle_minutes"
+            ],
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "bounds": {
+                    "type": "string"
+                },
+                "compute_idle_minutes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "attribution_definition": {
+            "type": "string"
+        },
+        "limits": {
+            "type": "object",
+            "required": [
+                "max_clusters"
+            ],
+            "properties": {
+                "max_clusters": {
+                    "type": "integer"
+                }
+            }
+        },
+        "total_clusters": {
+            "type": "integer"
+        },
+        "truncated": {
+            "type": "boolean"
+        },
+        "clusters": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "path",
+                    "user_agent",
+                    "asn",
+                    "volume",
+                    "awake_minutes"
+                ],
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "user_agent": {
+                        "type": "string"
+                    },
+                    "asn": {
+                        "type": "integer"
+                    },
+                    "volume": {
+                        "type": "integer"
+                    },
+                    "awake_minutes": {
+                        "type": "integer"
+                    }
+                }
+            }
+        }
+    }
+}

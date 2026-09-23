@@ -1,0 +1,217 @@
+{
+    "type": "object",
+    "required": [
+        "app",
+        "window",
+        "metric_definitions",
+        "compute_segments",
+        "database_segments"
+    ],
+    "properties": {
+        "app": {
+            "type": "string"
+        },
+        "window": {
+            "type": "object",
+            "required": [
+                "from",
+                "to",
+                "bounds",
+                "compute_idle_minutes",
+                "db_idle_minutes"
+            ],
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "bounds": {
+                    "type": "string"
+                },
+                "compute_idle_minutes": {
+                    "type": "integer"
+                },
+                "db_idle_minutes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "metric_definitions": {
+            "type": "object",
+            "required": [
+                "segment_bounds",
+                "minutes",
+                "sustained_minutes"
+            ],
+            "properties": {
+                "segment_bounds": {
+                    "type": "string"
+                },
+                "minutes": {
+                    "type": "string"
+                },
+                "sustained_minutes": {
+                    "type": "string"
+                }
+            }
+        },
+        "compute_segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "from",
+                    "to",
+                    "duration_minutes",
+                    "classes"
+                ],
+                "properties": {
+                    "from": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    },
+                    "duration_minutes": {
+                        "type": "integer"
+                    },
+                    "classes": {
+                        "type": "object",
+                        "required": [
+                            "human",
+                            "guest",
+                            "background"
+                        ],
+                        "properties": {
+                            "human": {
+                                "type": "object",
+                                "required": [
+                                    "minutes",
+                                    "sustained_minutes"
+                                ],
+                                "properties": {
+                                    "minutes": {
+                                        "type": "integer"
+                                    },
+                                    "sustained_minutes": {
+                                        "type": "integer"
+                                    }
+                                }
+                            },
+                            "guest": {
+                                "type": "object",
+                                "required": [
+                                    "minutes",
+                                    "sustained_minutes"
+                                ],
+                                "properties": {
+                                    "minutes": {
+                                        "type": "integer"
+                                    },
+                                    "sustained_minutes": {
+                                        "type": "integer"
+                                    }
+                                }
+                            },
+                            "background": {
+                                "type": "object",
+                                "required": [
+                                    "minutes",
+                                    "sustained_minutes"
+                                ],
+                                "properties": {
+                                    "minutes": {
+                                        "type": "integer"
+                                    },
+                                    "sustained_minutes": {
+                                        "type": "integer"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "database_segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "from",
+                    "to",
+                    "duration_minutes",
+                    "classes"
+                ],
+                "properties": {
+                    "from": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    },
+                    "duration_minutes": {
+                        "type": "integer"
+                    },
+                    "classes": {
+                        "type": "object",
+                        "required": [
+                            "human",
+                            "guest",
+                            "background"
+                        ],
+                        "properties": {
+                            "human": {
+                                "type": "object",
+                                "required": [
+                                    "minutes",
+                                    "sustained_minutes"
+                                ],
+                                "properties": {
+                                    "minutes": {
+                                        "type": "integer"
+                                    },
+                                    "sustained_minutes": {
+                                        "type": "integer"
+                                    }
+                                }
+                            },
+                            "guest": {
+                                "type": "object",
+                                "required": [
+                                    "minutes",
+                                    "sustained_minutes"
+                                ],
+                                "properties": {
+                                    "minutes": {
+                                        "type": "integer"
+                                    },
+                                    "sustained_minutes": {
+                                        "type": "integer"
+                                    }
+                                }
+                            },
+                            "background": {
+                                "type": "object",
+                                "required": [
+                                    "minutes",
+                                    "sustained_minutes"
+                                ],
+                                "properties": {
+                                    "minutes": {
+                                        "type": "integer"
+                                    },
+                                    "sustained_minutes": {
+                                        "type": "integer"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
