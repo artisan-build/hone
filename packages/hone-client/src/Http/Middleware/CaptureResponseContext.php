@@ -17,11 +17,12 @@ final class CaptureResponseContext
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
+        $vary = $response->getVary();
 
         Context::add('hone.response', [
             'sets_cookie' => $response->headers->has('set-cookie'),
             'cache_control' => $response->headers->get('cache-control'),
-            'vary' => $response->headers->get('vary'),
+            'vary' => $vary === [] ? null : implode(', ', $vary),
         ]);
 
         return $response;

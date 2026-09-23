@@ -54,13 +54,15 @@ it('captures the session cookie from outside the route middleware stack', functi
         ->and(strlen($contextArtifact))->toBeLessThan(200);
 });
 
-it('captures exact headers and no cookie from a static route', function (): void {
+it('captures exact headers including multiple vary fields from a static route', function (): void {
     Http::fake();
 
-    Route::get('/static', fn () => response('static')->withHeaders([
-        'Cache-Control' => 'public, max-age=300',
-        'Vary' => 'Accept-Encoding',
-    ]));
+    Route::get('/static', function () {
+        $response = response('static')->header('Cache-Control', 'public, max-age=300');
+        $response->setVary(['Accept-Encoding', 'Cookie']);
+
+        return $response;
+    });
 
     $response = $this->get('/static');
     $record = capturedNightwatchRequestRecord();
@@ -70,11 +72,13 @@ it('captures exact headers and no cookie from a static route', function (): void
     $response->assertSuccessful();
 
     expect($response->headers->has('set-cookie'))->toBeFalse()
+        ->and($response->headers->all('vary'))->toBe(['Accept-Encoding', 'Cookie'])
+        ->and($response->headers->get('vary'))->toBe('Accept-Encoding')
         ->and($context)->toBe([
             'hone.response' => [
                 'sets_cookie' => false,
                 'cache_control' => $response->headers->get('cache-control'),
-                'vary' => $response->headers->get('vary'),
+                'vary' => 'Accept-Encoding, Cookie',
             ],
         ])
         ->and(strlen($contextArtifact))->toBeLessThan(200);
