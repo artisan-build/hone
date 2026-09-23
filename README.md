@@ -55,6 +55,24 @@ Everything below is the do-it-yourself path.
 
 ---
 
+## Contents
+
+Pick the path you are on; you do not need all of this at once.
+
+- **Understanding what it does** — [How it fits together](#how-it-fits-together).
+- **Trying it on your machine** — [Prerequisites](#prerequisites), then
+  [Local development](#local-development). About 20 minutes, and it ends with a real telemetry record
+  you can query.
+- **Running it for real** — [Deploying to Laravel Cloud](#deploying-to-laravel-cloud). Do the local
+  walkthrough first; the Cloud steps assume you know what a working instance looks like.
+- **Pointing an app at it** — [Connecting a source app](#connecting-a-source-app).
+- **Pointing your agent at it** — [Connecting a coding agent (MCP)](#connecting-a-coding-agent-mcp),
+  then [Using it](#using-it).
+- **Reference** — [Configuration](#configuration), [Credentials](#credentials),
+  [Compatibility and upgrades](#compatibility-and-upgrades), [Troubleshooting](#troubleshooting).
+
+---
+
 ## How it fits together
 
 ```
@@ -82,8 +100,10 @@ Three terms are worth defining before you start:
 - **Credential purpose** — every bearer credential Hone issues is stamped with exactly one job. A
   `hone.ingest` credential may only send telemetry; a `hone.mcp` credential may only read it back over
   MCP. Presenting one where the other is required returns `401`. They are never interchangeable.
-- **Installation ref** — the name you give a source app when you mint its ingest credential. Hone tags
-  every record it stores with that name, so one Hone deployment can receive telemetry from many apps.
+- **Installation ref** — the name you give a credential's subject when you mint it. For an *ingest*
+  credential it is the source app's name, and Hone tags every record it stores with it, so one Hone
+  deployment can receive telemetry from many apps. For an *MCP* credential it is only a label: MCP
+  credentials read the whole deployment, so name them after the customer, not after an app.
 
 Hone is **single-tenant**: one deployment per customer, isolated by environment, serving as many of
 that customer's apps as you like.
@@ -259,9 +279,12 @@ curl -K ~/.hone-ingest.curl -H 'Content-Type: application/json' --data @/tmp/hon
 You should get `{"message":"Accepted."}`. Without the `-K` line you get
 `{"message":"Unauthorized."}` and a `401`.
 
-The record body is an opaque Nightwatch record; Hone only reads `t` (the record type) and a timestamp.
-`duration` is Nightwatch's field and is in **microseconds**, so the `124000` above becomes 124 ms in
-the aggregates.
+The record body is a Nightwatch record. Hone stores the whole thing as JSON and reads a small,
+type-specific set of fields from it: `t` (the record type), a timestamp, the fields that build the
+normalized key — here `method` and `route`, elsewhere `sql`, `name`, the exception class/file/line,
+`host`/`url`, log `level`, user `id`, or cache `store`/`type` — and the numeric fields the rollup
+aggregates. `duration` is Nightwatch's field and is in **microseconds**, so the `124000` above becomes
+124 ms in the aggregates.
 
 **10. Drain the queue and look at the row.**
 
@@ -306,16 +329,19 @@ in the last hour — a quiet instance, not a broken one.
 
 ### Deploying to Laravel Cloud
 
-> This section was written from
-> [`.claude/skills/provisioning-hone-on-cloud/SKILL.md`](.claude/skills/provisioning-hone-on-cloud/SKILL.md)
-> and its [`reference/`](.claude/skills/provisioning-hone-on-cloud/reference/) files, which record a
-> real first run on `cloud` CLI v0.5.0. It was **not** re-executed when this README was last edited, so
-> re-check any command that errors with `cloud <command> -h`. A skill-aware coding agent can run all of
-> it for you if you ask it to *"provision a Hone instance on Laravel Cloud."*
+These steps use the [Laravel Cloud CLI](https://cloud.laravel.com), installed with
+`composer global require laravel/cloud-cli` and authenticated with `cloud auth` (or
+`cloud auth:token --add` on a headless machine). Every command takes `-n` for non-interactive and
+`--json` where it reads or creates something. `<...>` means a value you captured from an earlier
+command's output.
 
-You need the `cloud` CLI, authenticated (`cloud auth`, or `cloud auth:token --add` for a headless
-machine). Every command below takes `-n` for non-interactive and `--json` where it reads or creates
-something. `<...>` means a value you captured from an earlier command's JSON.
+> **Which version this was checked against.** The command signatures below were read from **Cloud CLI
+> v0.6.0**. The two dashboard-only steps and the `environment:get` caveat come from a validated run on
+> v0.5.0, recorded in
+> [`.claude/skills/provisioning-hone-on-cloud/`](.claude/skills/provisioning-hone-on-cloud/). This
+> sequence was not re-executed against Cloud for this document — nobody deploys a customer environment
+> to proof-read a README. If a command's options have moved on in a newer CLI, `cloud <command> -h`
+> prints the current ones.
 
 #### What you are creating
 
@@ -361,10 +387,20 @@ than creating a second one.
 ```shell
 cloud application:create --name hone-<customer> --repository <your-org>/hone --region <region> --json -n
 cloud application:get <app-id> --json -n
+cloud instance:list <env-id> --json -n
 ```
 
-From that second response, record `defaultEnvironmentId` (call it `<env-id>` below) and the
-environment's URL.
+Record three values from those responses and keep them to hand:
+
+| Value | Where it comes from | Written below as |
+| --- | --- | --- |
+| The environment id | `application:get` → `defaultEnvironmentId` | `<env-id>` |
+| The environment URL | `application:get` | `<env-url>` |
+| The web instance id | `instance:list` → the entry whose `type` is `app` | `<app-instance-id>` |
+
+`instance:list` takes the environment, so run it after you have `<env-id>`. It lists every instance in
+that environment with its `id` and `type`; the `app` one is the web instance you size in step 7, and a
+`managed_queue` entry will appear there too once step 6 has run.
 
 **4. Create the PostgreSQL cluster and its database.** The cluster is positional in the second command.
 Neon serverless has no size flag — it scales by compute unit and suspends when idle.
@@ -381,11 +417,18 @@ rejects the call one flag at a time until you supply them.
 cloud cache:create --name hone-<customer> --type upstash_redis --region <region> --size <redis-size> --auto-upgrade-enabled=false --is-public=false --json -n
 ```
 
-**6. Create the managed queue.**
+**6. Create the managed queue and make it the default.** The environment is a positional argument, and
+`--name` and `--size` have no defaults — without them the command fails immediately under `-n` rather
+than prompting. Sizes come from the same `instance:sizes` listing as the web instance (the managed
+queue sizes are the `mq-pro-*` entries; `mq-pro-256mb` is the smallest).
 
 ```shell
-cloud managed-queue:create -n
+cloud managed-queue:create <env-id> --name hone-ingest --size <mq-size> --json -n
+cloud managed-queue:set-default <queue-instance-id> --json -n
 ```
+
+`managed-queue:create` returns the new instance; `set-default` takes that instance's id and is what
+makes accepted ingest batches actually route to it.
 
 **7. Size the web instance and turn its scheduler on.** `application:create` already made a default
 instance. **`instance:create` is broken non-interactively on CLI v0.5.0**, so set the instance's size
@@ -408,10 +451,16 @@ configuration — both the credentials (`DB_HOST`, `REDIS_*`, `AWS_*`) **and** t
 (`DB_CONNECTION`, `CACHE_STORE`, `QUEUE_CONNECTION`, `FILESYSTEM_DISK`) — into a managed environment
 file the app reads. Anything you set yourself shadows the injected value and breaks that resource.
 
-This catches people in one specific place: `.env.example` sets `QUEUE_CONNECTION=redis` and
-`HONE_QUEUE_CONNECTION=redis`, which is right locally and wrong on Cloud. **Copy neither into a Cloud
-environment.** Cloud injects `QUEUE_CONNECTION` for the managed queue, and leaving
-`HONE_QUEUE_CONNECTION` unset makes ingest batches use that injected default.
+**Do not sync `.env.example` to a Cloud environment, in whole or in part.** It is a local-development
+file and almost everything resource-shaped in it is a trap there: `DB_CONNECTION` and the `DB_*`
+credentials, `CACHE_STORE`, `SESSION_DRIVER`, `FILESYSTEM_DISK`, `REDIS_*`, `AWS_*`,
+`QUEUE_CONNECTION`, and `HONE_QUEUE_CONNECTION`. Every one of those either is injected by Cloud or
+should be left to the framework default.
+
+**The three variables in the next step are the complete manual set for this deployment.** Everything
+else Hone needs already has a working default, and every resource setting arrives from Cloud.
+`HONE_QUEUE_CONNECTION` in particular must stay unset, so ingest batches use the default connection
+Cloud points at your managed queue.
 
 **9. Set the few variables that are genuinely yours.** `--action set` upserts one key and preserves the
 rest, including the injected ones. Cloud generates `APP_KEY` itself.
@@ -436,29 +485,103 @@ cloud deployment:get <deployment-id> --json -n
 Poll the second command until `status` reaches `deployment.succeeded`. It moves through
 `build.running` → `deployment.running`; on `deployment.failed`, read `failureReason`.
 
-**11. Mint the first ingest credential,** so you can verify the deployment end to end. The command runs
-inside the environment, which is what `--local` means there:
+**11. Bootstrap one operator credential, then get it out of Cloud's history.**
+
+> **`cloud command:run` is not a one-time reveal.** Cloud stores the command and its output, and
+> `cloud command:get` can fetch that output again later. Anything a remote artisan command prints is
+> retained. So **do not mint your ingest and MCP credentials through `cloud command:run`** — mint one
+> operator credential there, immediately rotate it over HTTPS, and mint everything else through the
+> HTTP API, which returns each secret only to your terminal.
 
 ```shell
-cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation '<source-app-name>' --kind=bearer --purpose=consumption --name='hone-ingest-<source-app-name>' --local" -n
+cloud command:run <env-id> --cmd="php artisan bfc:install:operator-credential --name='<customer>-operator'" -n
 ```
 
-It prints the credential once. Capture it straight into the source app's secret environment.
-
-**12. Verify functionally.** Do not use `environment:get` for this — it reports `databaseSchemaId`,
-`cacheId` and `branch` as `null` even when they are set, so a null reading proves nothing.
+That prints an operator credential carrying `credential:admin` — and leaves it in Cloud's command
+record. Put it in a curl configuration file and rotate it straight away, so the retained value is the
+one that gets retired:
 
 ```shell
-curl -s -o /dev/null -w '%{http_code}\n' https://<env-url>/capabilities
+umask 077
+printf 'Paste the operator credential: '
+read -rs token
+printf 'header = "Authorization: Bearer %s"\n' "$token" > ~/.hone-operator.curl
+unset token
+
+curl -s -K ~/.hone-operator.curl -H 'Accept: application/json' https://<env-url>/bfc/credentials
 ```
 
-- `/capabilities` → **200**.
-- `POST /ingest` with no credential → **401**.
-- `POST /ingest` with the credential from step 11 and an empty body → **422**. That is the one you
-  want: authentication passed and only the envelope was rejected. A `401` here means the credential is
-  missing, revoked, or has the wrong purpose or installation binding.
-- `cloud command:run <env-id> --cmd="php artisan migrate:status" -n` lists the Hone tables.
-- `POST /mcp` with no credential → **401**.
+That lists your credentials; find the `operator` row you just created and rotate it:
+
+```shell
+curl -s -K ~/.hone-operator.curl -X POST -H 'Accept: application/json' https://<env-url>/bfc/credentials/<operator-id>/rotate
+```
+
+The response carries `delivery.secret` — the replacement. Put **that** into
+`~/.hone-operator.curl` the same way, and the credential sitting in Cloud's command history is retired
+at the end of its one-hour grace window. From here every other credential is minted over HTTPS and
+never touches Cloud's command record.
+
+**12. Mint the first ingest credential over the API,** so you can verify the deployment end to end.
+`POST /bfc/credentials` runs the same action as `bfc:credential:mint` and returns the secret once, in
+the response body:
+
+```shell
+curl -s -K ~/.hone-operator.curl -X POST https://<env-url>/bfc/credentials \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"subject_type":"installation","subject_ref":"<source-app-name>","kind":"bearer","purpose":"consumption","name":"hone-ingest-<source-app-name>"}'
+```
+
+A `201` comes back with the credential summary and `"delivery":{"shape":"bearer","secret":"tok_..."}`.
+Capture that secret straight into the source app's secret environment. Store it for the next step the
+same secret-safe way:
+
+```shell
+umask 077
+printf 'Paste the ingest credential: '
+read -rs token
+printf 'header = "Authorization: Bearer %s"\n' "$token" > ~/.hone-ingest-cloud.curl
+unset token
+```
+
+**13. Verify functionally.** Do not use `environment:get` for this — it reports `databaseSchemaId`,
+`cacheId` and `branch` as `null` even when they are set, so a null reading proves nothing. Run all
+four; each prints only a status code.
+
+```shell
+# 1. The app is up and speaking the envelope contract.
+curl -s -o /dev/null -w 'capabilities %{http_code}\n' https://<env-url>/capabilities
+
+# 2. Ingest refuses an anonymous caller.
+curl -s -o /dev/null -w 'ingest anon  %{http_code}\n' -X POST https://<env-url>/ingest \
+  -H 'Content-Type: application/json' -d '{}'
+
+# 3. Ingest accepts the credential and rejects only the envelope.
+curl -s -o /dev/null -w 'ingest auth  %{http_code}\n' -K ~/.hone-ingest-cloud.curl \
+  -X POST https://<env-url>/ingest -H 'Content-Type: application/json' -d '{}'
+
+# 4. MCP refuses an anonymous caller.
+curl -s -o /dev/null -w 'mcp anon     %{http_code}\n' -X POST https://<env-url>/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{}'
+```
+
+Expect `200`, `401`, `422`, `401`. The `422` in check 3 is the one that matters: authentication passed
+and only the envelope was rejected. A `401` there means the credential is missing, revoked, or has the
+wrong purpose or installation binding.
+
+Then confirm the migrations ran — this command prints no secret, so it is safe to run remotely:
+
+```shell
+cloud command:run <env-id> --cmd="php artisan migrate:status" -n
+```
+
+**Clean up.** `~/.hone-operator.curl` and `~/.hone-ingest-cloud.curl` hold live credentials. Keep the
+operator file somewhere you keep secrets, or delete it and mint a fresh operator credential when you
+next need one; delete the ingest file once the value is in the source app's environment:
+
+```shell
+rm ~/.hone-ingest-cloud.curl
+```
 
 **Do not enable Laravel Cloud's built-in Nightwatch integration**, on this app or on your source apps.
 It runs Cloud's managed agent and ships data to Nightwatch's hosted service, which is exactly what
@@ -481,21 +604,25 @@ Your source app must be a **Laravel 13** application on **PHP `^8.3`** — `hone
 or 12 the `composer require` below fails to resolve.
 
 **1. On the Hone server,** mint that app an ingest credential. The installation ref you choose becomes
-the app name in every Hone query. Skip this if you already did it in Cloud step 11.
+the app name in every Hone query. Skip this if you already did it in Cloud step 12.
+
+On a Hone instance you can open a terminal on — your laptop, or a server you SSH into:
 
 ```shell
 php artisan bfc:credential:mint installation '<source-app-name>' --kind=bearer --purpose=consumption --name='hone-ingest-<source-app-name>' --local
 ```
 
-For a deployed Hone instance, run the same command through the CLI so it acts on that environment's
-database:
+On a **deployed** Hone instance, use the HTTP API with your operator credential rather than
+`cloud command:run`, which would retain the secret in Cloud's command history:
 
 ```shell
-cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation '<source-app-name>' --kind=bearer --purpose=consumption --name='hone-ingest-<source-app-name>' --local" -n
+curl -s -K ~/.hone-operator.curl -X POST https://<env-url>/bfc/credentials \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"subject_type":"installation","subject_ref":"<source-app-name>","kind":"bearer","purpose":"consumption","name":"hone-ingest-<source-app-name>"}'
 ```
 
-The credential is shown once. Put it straight into the source app's secret environment — never into a
-commit, a chat message or a ticket.
+Either way the credential is revealed once. Put it straight into the source app's secret environment —
+never into a commit, a chat message or a ticket.
 
 **2. In the source app,** install Nightwatch and the Hone client:
 
@@ -512,12 +639,33 @@ puts the credential into your shell history and the process table. The installer
 `artisan-build/hone-client` to a caret major constraint in `composer.json`. You do **not** need a
 `NIGHTWATCH_TOKEN`.
 
-Set `NIGHTWATCH_DEPLOY` in the **source app** at deploy time (the short commit SHA is the usual choice)
-so Hone can compare one release against another:
+**Set `NIGHTWATCH_DEPLOY` in the source app so Hone can compare one release against another.** It is
+read from the runtime environment, so where you set it depends on where the app runs.
+
+*For local development*, set it once in `.env`, by hand or with a replace-or-append snippet. Do not use
+a plain `>>`: that appends a second `NIGHTWATCH_DEPLOY=` line every time you run it, and the file ends
+up with one key per commit.
 
 ```shell
-echo "NIGHTWATCH_DEPLOY=$(git rev-parse --short HEAD)" >> .env
+SHA=$(git rev-parse --short HEAD)
+grep -q '^NIGHTWATCH_DEPLOY=' .env \
+  && sed -i '' "s/^NIGHTWATCH_DEPLOY=.*/NIGHTWATCH_DEPLOY=$SHA/" .env \
+  || printf 'NIGHTWATCH_DEPLOY=%s\n' "$SHA" >> .env
 ```
+
+(`sed -i ''` is the BSD/macOS form; on Linux use `sed -i`.)
+
+*For a deployed source app*, the value has to change on every release, so set it in that platform's
+environment rather than in a file you edit by hand. On Laravel Cloud, add it to the source app's build
+or deploy commands so each release writes its own SHA:
+
+```shell
+cloud environment:variables <source-env-id> --action set --key NIGHTWATCH_DEPLOY --value "$(git rev-parse --short HEAD)" -n --force
+```
+
+On any other host, set `NIGHTWATCH_DEPLOY` from your CI's commit variable (`$GITHUB_SHA`,
+`$CI_COMMIT_SHORT_SHA`, and so on) as part of the deploy. Leaving it unset is fine — deploy comparison
+is simply unavailable, and every record stores `deploy: null`.
 
 **3. Prove it is actually connected.** The client is deliberately fail-open — it never breaks your app,
 and it never reports an error if it is inert — so a successful installer proves nothing on its own.
@@ -556,17 +704,27 @@ tool (see the next section). Your installation ref should appear with timestamps
 The MCP server is mounted at `HONE_MCP_PATH` (default `/mcp`) and requires an
 `Authorization: Bearer <credential>` header.
 
-Mint a **separate** credential for it. Like every credential command, this runs **on the Hone server**,
-not in a source app — Built for Cloud is only installed here:
+> **An MCP credential reads the whole deployment, not one app.** It authenticates the endpoint; it
+> carries no app filter. Every tool can query every app reporting to this Hone instance —
+> `list-apps-tool` returns all of them, and the tools that take an `app` argument let the caller choose
+> any of them. So name it after the deployment, not after an app, and treat it as read access to all
+> that customer's telemetry. There is no per-app MCP credential.
+
+**1. Mint it.** It must be a *separate* credential from any ingest one, and like every credential
+command this runs **on the Hone server** — Built for Cloud is only installed there, never in a source
+app:
 
 ```shell
-php artisan bfc:credential:mint installation '<source-app-name>' --kind=bearer --purpose=mcp --name='hone-mcp-<source-app-name>' --local
+php artisan bfc:credential:mint installation '<customer>' --kind=bearer --purpose=mcp --name='hone-mcp-<customer>' --local
 ```
 
-For a deployed instance:
+On a deployed instance, mint it over the API with your operator credential so the secret is not
+retained in Cloud's command history:
 
 ```shell
-cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation '<source-app-name>' --kind=bearer --purpose=mcp --name='hone-mcp-<source-app-name>' --local" -n
+curl -s -K ~/.hone-operator.curl -X POST https://<env-url>/bfc/credentials \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"subject_type":"installation","subject_ref":"<customer>","kind":"bearer","purpose":"mcp","name":"hone-mcp-<customer>"}'
 ```
 
 An ingest credential will not work here, and an MCP credential cannot send telemetry. Requests with no
@@ -576,9 +734,8 @@ valid credential get `401`. `GET /bfc/meta` needs no credential and reports the 
 Hone also accepts a delegated assertion issued by Scalpels whose signed `purpose` claim is `mcp`. Hone
 verifies those assertions but never issues them.
 
-Point your agent at `https://<your-hone-host>/mcp` with that credential — most MCP clients take the
-header from a configuration file rather than a command line. To check it by hand, keep the credential
-out of your shell history the same way as before:
+**2. Check the endpoint by hand** before wiring a client to it, so you know whether a later failure is
+the server or the client. Keep the credential out of your shell history the same way as before:
 
 ```shell
 umask 077
@@ -597,12 +754,47 @@ curl -K ~/.hone-mcp.curl -X POST https://<your-hone-host>/mcp \
 
 A working server answers with `"serverInfo":{"name":"Hone","version":"1.0.0"}`.
 
+**3. Register it with your agent.** For **Claude Code**, add it as an HTTP server with the
+authorization header:
+
+```shell
+claude mcp add --transport http --scope user hone https://<your-hone-host>/mcp \
+  --header "Authorization: Bearer <the mcp credential>"
+```
+
+`--scope user` keeps it in your own configuration rather than in a project file that could be
+committed. This is the one place the credential does reach a command line: clear it from your shell
+history afterwards (`history -d` for the entry, or start the line with a space if your shell is
+configured to ignore those), or run `claude mcp add` without `--header` and add the header to the
+`hone` entry in `~/.claude.json` with an editor instead.
+
+Confirm it registered and is reachable, then restart Claude Code so it connects:
+
+```shell
+claude mcp list
+```
+
+`hone` should be listed and health-checked. After the restart, Hone's tools appear to the agent as
+`mcp__hone__slow_requests`, `mcp__hone__list-apps-tool` and so on, and you can ask questions in plain
+language: *"Using Hone, what got slower after the last deploy?"*
+
+To remove it again:
+
+```shell
+claude mcp remove hone
+```
+
+For any other MCP client, the three things it needs are the same: the URL
+`https://<your-hone-host>/mcp`, the `Authorization: Bearer` header, and HTTP (not stdio) transport.
+
 ---
 
 ## Using it
 
-Hone exposes **19 read-only MCP tools**. Nothing writes, and every tool is classified as carrying
-customer content, because even a count can be keyed by an app id, route, user id or deploy.
+Hone exposes **19 read-only MCP tools**. They do not modify telemetry or application data; note that
+authentication still writes credential-usage metadata — every accepted request updates that
+credential's `last_used_at`, and its first use records a lifecycle event. Every tool is classified as
+carrying customer content, because even a count can be keyed by an app id, route, user id or deploy.
 
 `tools/list` is paginated: the first page returns 15 tools and a `nextCursor`. If your client shows
 only 15, it stopped at the first page.
@@ -705,9 +897,12 @@ Credentials are managed by [`artisan-build/built-for-cloud`](https://github.com/
 (v0.16.0 is the version this app locks). They live in a `credentials` table; bearer secrets are stored
 as SHA-256 digests, so a lost credential is rotated, never recovered.
 
-All of these commands **require `--local`**, which means "act directly on the database of the machine
-running this command". They never reach out to Laravel Cloud on their own; to act on a deployed
-environment, run them through `cloud command:run <env-id> --cmd "…" -n`.
+There are **two transports, running the same code**: artisan commands and an HTTP API. Use whichever
+suits where you are.
+
+**On a machine whose terminal you have** — your laptop, or a server you SSH into — use the commands.
+They all **require `--local`**, which means "act directly on the database of the machine running this
+command":
 
 ```shell
 php artisan bfc:credential:list --local
@@ -715,9 +910,25 @@ php artisan bfc:credential:rotate <id> --local
 php artisan bfc:credential:revoke <id> --local
 ```
 
-None of them accepts a secret as an argument — they only ever print one, once. `rotate` mints the
+**On a deployed instance, use the HTTP API instead.** `GET /bfc/credentials`,
+`POST /bfc/credentials`, `POST /bfc/credentials/{id}/rotate` and `DELETE /bfc/credentials/{id}` run the
+same action classes as the commands, authenticated with an operator credential (see Cloud step 11).
+Minting returns the new secret in the response body:
+
+```shell
+curl -s -K ~/.hone-operator.curl -H 'Accept: application/json' https://<env-url>/bfc/credentials
+```
+
+> **Why not `cloud command:run`?** Cloud stores each command it runs *together with its output*, and
+> `cloud command:get` can fetch that output again afterwards. Anything an artisan command prints on a
+> Cloud environment is retained there, which defeats the point of a reveal-once secret. Run commands
+> that print nothing sensitive (`migrate:status`, `hone:health --json`) that way freely; mint
+> credentials over HTTPS.
+
+Neither transport accepts a secret as an argument — they only ever return one, once. `rotate` mints the
 replacement before retiring the old one and gives bearer credentials a one-hour grace window, so you
-can deploy the new value without dropping telemetry.
+can deploy the new value without dropping telemetry. That is also the remedy if a secret is ever
+exposed: rotate it, and the exposed value dies with the grace window.
 
 There is no environment-variable fallback on the server: if a credential is not in the table, the
 request is refused.
@@ -786,6 +997,11 @@ checkpoint and starts the range again.
 
 **The app name in Hone is wrong.** It comes from the credential's installation ref, not from the source
 app's `HONE_APP`. Mint a new credential with the ref you want.
+
+**An agent is seeing telemetry from an app you did not expect.** That is how it works: an MCP
+credential authenticates the endpoint and carries no app filter, so it reads every app in that Hone
+deployment. There is no per-app MCP credential. If a reader should only see one app's telemetry, that
+app needs its own Hone deployment.
 
 **Tests fail to connect.** The suites use fixed settings on `127.0.0.1:5432` as user `root` with an
 empty password: `hone_app_test` for the app suite, `hone_server_test` for the `hone-server` package
