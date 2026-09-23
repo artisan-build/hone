@@ -74,7 +74,15 @@ final class IptoAsnLookup implements AsnLookup
             $range = $this->parseRange($this->file->fgets());
             $this->lastLookupInspectedLines++;
 
-            if ($range === null || strlen($range['start']) !== strlen($target)) {
+            if ($range === null) {
+                continue;
+            }
+
+            if (strlen($range['start']) !== strlen($target)) {
+                if ($matchingLines > 0) {
+                    break;
+                }
+
                 continue;
             }
 

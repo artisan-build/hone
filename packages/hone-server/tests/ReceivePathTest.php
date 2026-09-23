@@ -373,6 +373,40 @@ it('uses a sparse index and bounds its exact-IP cache', function (): void {
     }
 });
 
+it('stops an unknown IPv4 lookup when a terminal sparse block reaches the IPv6 tail', function (): void {
+    $path = tempnam(sys_get_temp_dir(), 'hone-asn-');
+
+    expect($path)->toBeString();
+
+    /** @var string $path */
+    $lines = [
+        "8.8.8.0\t8.8.8.0\t15169\tUS\tFixture",
+        "8.8.8.1\t8.8.8.1\t15169\tUS\tFixture",
+        "8.8.8.2\t8.8.8.2\t15169\tUS\tFixture",
+        "8.8.8.3\t8.8.8.3\t15169\tUS\tFixture",
+    ];
+
+    for ($offset = 0; $offset < 4096; $offset++) {
+        $address = '2001:db8::'.dechex($offset);
+        $lines[] = "{$address}\t{$address}\t64500\tZZ\tIPv6 fixture";
+    }
+
+    file_put_contents($path, implode("\n", $lines)."\n");
+
+    try {
+        $lookup = new IptoAsnLookup($path, indexStride: 16);
+
+        expect($lookup->lookup('9.9.9.9'))->toBeNull();
+
+        $reflection = new ReflectionClass($lookup);
+        $inspectedLines = $reflection->getProperty('lastLookupInspectedLines')->getValue($lookup);
+
+        expect($inspectedLines)->toBe(5);
+    } finally {
+        @unlink($path);
+    }
+});
+
 it('refreshes its index and cache when the TSV is replaced', function (): void {
     $path = tempnam(sys_get_temp_dir(), 'hone-asn-');
 
@@ -391,7 +425,9 @@ it('refreshes its index and cache when the TSV is replaced', function (): void {
 
         expect($lookup->lookup('1.1.1.1'))->toBe(64500);
 
+        $previousMtime = filemtime($path);
         file_put_contents($path, "1.1.1.0\t1.1.1.255\t64501\tUS\tChanged in place\n");
+        touch($path, (is_int($previousMtime) ? $previousMtime : time()) + 2);
 
         expect($lookup->lookup('1.1.1.1'))->toBe(64501);
     } finally {
