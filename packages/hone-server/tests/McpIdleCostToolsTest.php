@@ -2,12 +2,17 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\HoneServer\Contracts\AsnLookup;
+use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\AwakeSegmentsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
 use ArtisanBuild\HoneServer\Models\ActivityBucket;
+use ArtisanBuild\HoneServer\Models\BackgroundActivityBucket;
+use ArtisanBuild\HoneServer\Models\RawEvent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
@@ -92,6 +97,7 @@ it('returns scenario C overlapping background coverage and scheduled database fr
         ->and($background['activities'])->toBe([
             [
                 'class' => 'scheduled',
+                'name' => 'schedule:run',
                 'runs' => 119,
                 'active_minutes' => 119,
                 'runs_per_minute' => 1,
@@ -130,6 +136,13 @@ it('includes query-running jobs and excludes background runs without queries fro
         'jobs_with_queries' => 2,
         'jobs_without_queries' => 3,
     ]);
+    BackgroundActivityBucket::factory()->create([
+        'app' => 'background-types',
+        'bucket_minute' => '2026-06-09 09:00:00+00',
+        'activity_type' => 'job',
+        'identity' => 'App\\Jobs\\SyncCatalog',
+        'runs_with_queries' => 2,
+    ]);
 
     $background = honeToolPayload(HoneMcpServer::tool(BackgroundDbActivityTool::class, idleCostWindow(
         'background-types',
@@ -140,12 +153,100 @@ it('includes query-running jobs and excludes background runs without queries fro
     expect($background['activities'])->toBe([
         [
             'class' => 'job',
+            'name' => 'App\\Jobs\\SyncCatalog',
             'runs' => 2,
             'active_minutes' => 1,
             'runs_per_minute' => 2,
         ],
     ])->and($segments['compute_segments'][0]['classes']['background']['sustained_minutes'])->toBe(5)
         ->and($segments['database_segments'][0]['classes']['background']['sustained_minutes'])->toBe(5);
+});
+
+it('durably lists named background database activity through ingest rollup and raw pruning', function (): void {
+    $records = [
+        backgroundRecord('scheduled-task', 'reports:send', '2026-06-09T09:00:00Z'),
+        backgroundRecord('scheduled-task', 'reports:send', '2026-06-09T09:01:00Z'),
+        backgroundRecord('scheduled-task', 'reports:send', '2026-06-09T09:02:00Z'),
+        backgroundRecord('scheduled-task', 'cache:warm', '2026-06-09T09:00:00Z'),
+        backgroundRecord('scheduled-task', 'cache:warm', '2026-06-09T09:02:00Z'),
+        backgroundRecord('job-attempt', 'App\\Jobs\\SyncCatalog', '2026-06-09T09:01:00Z'),
+    ];
+
+    (new ProcessTelemetryBatch(
+        app: 'production-path',
+        deploy: null,
+        sentAt: '2026-06-09T09:02:00Z',
+        records: $records,
+    ))->handle(app(AsnLookup::class));
+
+    expect(RawEvent::query()->where('app', 'production-path')->pluck('normalized_key')->sort()->values()->all())->toBe([
+        'App\\Jobs\\SyncCatalog',
+        'cache:warm',
+        'cache:warm',
+        'reports:send',
+        'reports:send',
+        'reports:send',
+    ]);
+
+    Artisan::call('hone:rollup');
+    Artisan::call('hone:rollup');
+
+    $arguments = idleCostWindow(
+        'production-path',
+        from: '2026-06-09T09:00:00Z',
+        to: '2026-06-09T09:02:00Z',
+    );
+    DB::connection('hone')->flushQueryLog();
+    DB::connection('hone')->enableQueryLog();
+    $beforePrune = honeToolPayload(HoneMcpServer::tool(BackgroundDbActivityTool::class, $arguments)->assertOk());
+    $toolQueries = collect(DB::connection('hone')->getQueryLog());
+    DB::connection('hone')->disableQueryLog();
+
+    expect($beforePrune['activities'])->toBe([
+        [
+            'class' => 'job',
+            'name' => 'App\\Jobs\\SyncCatalog',
+            'runs' => 1,
+            'active_minutes' => 1,
+            'runs_per_minute' => 0.333333,
+        ],
+        [
+            'class' => 'scheduled',
+            'name' => 'cache:warm',
+            'runs' => 2,
+            'active_minutes' => 2,
+            'runs_per_minute' => 0.666667,
+        ],
+        [
+            'class' => 'scheduled',
+            'name' => 'reports:send',
+            'runs' => 3,
+            'active_minutes' => 3,
+            'runs_per_minute' => 1,
+        ],
+    ])->and($toolQueries)->toHaveCount(1)
+        ->and($toolQueries->first()['query'])->toContain('from "background_activity_buckets"')
+        ->and($toolQueries->first()['query'])->toContain('"app" = ?')
+        ->and($toolQueries->first()['query'])->toContain('"bucket_minute" between ? and ?')
+        ->and($toolQueries->first()['query'])->not->toContain('raw_events');
+
+    $awake = awakeSegmentsPayload(
+        'production-path',
+        from: '2026-06-09T09:00:00Z',
+        to: '2026-06-09T09:02:00Z',
+    );
+
+    expect($awake['compute_segments'])->toBe([backgroundOnlySegment()])
+        ->and($awake['database_segments'])->toBe([backgroundOnlySegment()]);
+
+    config()->set('hone-server.retention.raw_hours', 1);
+    Artisan::call('hone:prune');
+
+    $afterPrune = honeToolPayload(HoneMcpServer::tool(BackgroundDbActivityTool::class, $arguments)->assertOk());
+
+    expect(RawEvent::query()->where('app', 'production-path')->count())->toBe(0)
+        ->and(BackgroundActivityBucket::query()->where('app', 'production-path')->count())->toBe(6)
+        ->and($afterPrune['activities'])->toBe($beforePrune['activities']);
 });
 
 it('registers both read-only tools and explains both attribution metrics in discovery metadata', function (): void {
@@ -272,6 +373,13 @@ function seedIdleCostScenario(string $app, bool $guestQueries, bool $backgroundQ
             $minute = $minute->addMinute()
         ) {
             incrementActivity($buckets, $minute, 'scheduled_runs_with_queries');
+            BackgroundActivityBucket::factory()->create([
+                'app' => $app,
+                'bucket_minute' => $minute,
+                'activity_type' => 'scheduled',
+                'identity' => 'schedule:run',
+                'runs_with_queries' => 1,
+            ]);
         }
     }
 
@@ -339,4 +447,36 @@ function segmentContains(array $segment, string $timestamp): bool
 
     return $tick->greaterThanOrEqualTo(CarbonImmutable::parse($segment['from']))
         && $tick->lessThan(CarbonImmutable::parse($segment['to']));
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function backgroundRecord(string $recordType, string $name, string $timestamp): array
+{
+    return [
+        'v' => 1,
+        't' => $recordType,
+        'name' => $name,
+        'status' => 'processed',
+        'queries' => 1,
+        'timestamp' => $timestamp,
+    ];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function backgroundOnlySegment(): array
+{
+    return [
+        'from' => '2026-06-09T09:00:00Z',
+        'to' => '2026-06-09T09:07:00Z',
+        'duration_minutes' => 7,
+        'classes' => [
+            'human' => ['minutes' => 0, 'sustained_minutes' => 0],
+            'guest' => ['minutes' => 0, 'sustained_minutes' => 0],
+            'background' => ['minutes' => 7, 'sustained_minutes' => 7],
+        ],
+    ];
 }

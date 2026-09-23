@@ -483,6 +483,7 @@ it('normalizes raw Nightwatch record type values', function (string $recordType,
     expect(Normalizer::keyFor($recordType, $payload))->toBe($expectedKey);
 })->with([
     'queued job' => ['queued-job', ['name' => 'SendWelcomeEmail'], 'SendWelcomeEmail'],
+    'job attempt' => ['job-attempt', ['name' => 'SendWelcomeEmail'], 'SendWelcomeEmail'],
     'outgoing request' => ['outgoing-request', ['method' => 'GET', 'host' => 'api.example.com'], 'GET api.example.com'],
     'scheduled task' => ['scheduled-task', ['name' => 'backup:run'], 'backup:run'],
     'log level' => ['log', ['level' => 'error'], 'error'],

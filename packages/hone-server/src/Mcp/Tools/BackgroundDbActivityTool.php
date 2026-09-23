@@ -8,7 +8,7 @@ use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\BoundsActivityTimelineWindow;
-use ArtisanBuild\HoneServer\Models\ActivityBucket;
+use ArtisanBuild\HoneServer\Models\BackgroundActivityBucket;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
 use Laravel\Mcp\Request;
@@ -19,7 +19,7 @@ use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('background_db_activity')]
-#[Description('Return database-touching scheduled task and job runs for an app. Frequency is the average run count per minute across the requested inclusive activity-bucket window.')]
+#[Description('List individual database-touching scheduled tasks and jobs by stable normalized name. Frequency is each activity\'s average run count per minute across the requested inclusive timeline window.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
 final class BackgroundDbActivityTool extends Tool
@@ -31,33 +31,25 @@ final class BackgroundDbActivityTool extends Tool
     {
         $validated = $request->validate($this->activityWindowRules());
         $window = $this->activityWindow($validated);
-        $totals = ActivityBucket::query()
+        $activities = BackgroundActivityBucket::query()
             ->toBase()
-            ->selectRaw('coalesce(sum(scheduled_runs_with_queries), 0) as scheduled_runs')
-            ->selectRaw('count(*) filter (where scheduled_runs_with_queries > 0) as scheduled_active_minutes')
-            ->selectRaw('coalesce(sum(jobs_with_queries), 0) as job_runs')
-            ->selectRaw('count(*) filter (where jobs_with_queries > 0) as job_active_minutes')
+            ->select(['activity_type', 'identity'])
+            ->selectRaw('sum(runs_with_queries) as runs')
+            ->selectRaw('count(*) as active_minutes')
             ->where('app', $validated['app'])
             ->whereBetween('bucket_minute', [$window['from']->toIso8601String(), $window['to']->toIso8601String()])
-            ->firstOrFail();
-
-        $activities = [];
-
-        foreach ([
-            'scheduled' => [(int) $totals->scheduled_runs, (int) $totals->scheduled_active_minutes],
-            'job' => [(int) $totals->job_runs, (int) $totals->job_active_minutes],
-        ] as $activityClass => [$runs, $activeMinutes]) {
-            if ($runs === 0) {
-                continue;
-            }
-
-            $activities[] = [
-                'class' => $activityClass,
-                'runs' => $runs,
-                'active_minutes' => $activeMinutes,
-                'runs_per_minute' => round($runs / $window['minutes'], 6),
-            ];
-        }
+            ->groupBy('activity_type', 'identity')
+            ->orderBy('activity_type')
+            ->orderBy('identity')
+            ->get()
+            ->map(fn (object $activity): array => [
+                'class' => (string) $activity->activity_type,
+                'name' => (string) $activity->identity,
+                'runs' => (int) $activity->runs,
+                'active_minutes' => (int) $activity->active_minutes,
+                'runs_per_minute' => round((int) $activity->runs / $window['minutes'], 6),
+            ])
+            ->all();
 
         return Response::json([
             'app' => $validated['app'],
