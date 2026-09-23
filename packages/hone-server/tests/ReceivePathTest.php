@@ -8,9 +8,11 @@ use ArtisanBuild\BuiltForCloud\SystemAuthorityBusFrame;
 use ArtisanBuild\BuiltForCloud\SystemAuthorityContext;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use ArtisanBuild\HoneContracts\Envelope;
+use ArtisanBuild\HoneServer\Contracts\AsnLookup;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
+use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
 use Illuminate\Support\Facades\Queue;
 
 uses(WithCredentials::class);
@@ -179,7 +181,7 @@ it('processes telemetry batches into raw events', function (): void {
         ],
     );
 
-    $job->handle();
+    $job->handle(resolve(AsnLookup::class));
 
     $events = RawEvent::query()->orderBy('id')->get();
 
@@ -194,6 +196,102 @@ it('processes telemetry batches into raw events', function (): void {
         ->and($events[0]->occurred_at)->not->toBeNull()
         ->and($events[1]->occurred_at)->not->toBeNull();
 });
+
+it('enriches real Nightwatch request records without changing their opaque payloads', function (): void {
+    $records = [
+        [
+            't' => 'request',
+            'method' => 'GET',
+            'route_path' => '/',
+            'ran_queries' => false,
+            'ip' => '8.8.8.8',
+            'headers' => json_encode([
+                'CF-Connecting-IP' => ['1.1.1.1'],
+                'User-Agent' => ['Mozilla/5.0'],
+            ], JSON_THROW_ON_ERROR),
+            'context' => json_encode([
+                'hone.response' => [
+                    'status' => 200,
+                    'content_type' => 'text/html; charset=UTF-8',
+                    'cache_control' => 'no-cache, private',
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ],
+        [
+            't' => 'request',
+            'method' => 'GET',
+            'route_path' => '/static',
+            'ran_queries' => false,
+            'ip' => '1.1.1.1',
+            'headers' => ['user-agent' => 'curl/8.0'],
+        ],
+        [
+            't' => 'request',
+            'method' => 'GET',
+            'route_path' => '/dashboard',
+            'ran_queries' => true,
+            'user' => ['id' => '42'],
+            'ip' => '1.1.1.1',
+        ],
+    ];
+    $job = new ProcessTelemetryBatch('checkout', 'abc123', '2026-06-09T12:00:00+00:00', $records);
+
+    $job->handle(new IptoAsnLookup(__DIR__.'/Fixtures/ip2asn.tsv'));
+
+    $events = RawEvent::query()->orderBy('id')->get();
+
+    expect($events)->toHaveCount(3)
+        ->and($events->pluck('actor')->all())->toBe(['guest', 'guest', 'human'])
+        ->and($events->pluck('ran_queries')->all())->toBe([false, false, true])
+        ->and($events[0]->client_ip)->toBe('1.1.1.1')
+        ->and($events[0]->asn)->toBe(13335)
+        ->and($events[0]->user_agent)->toBe('Mozilla/5.0')
+        ->and($events[0]->response)->toBe([
+            'status' => 200,
+            'content_type' => 'text/html; charset=UTF-8',
+            'cache_control' => 'no-cache, private',
+        ])
+        ->and($events[1]->client_ip)->toBe('1.1.1.1')
+        ->and($events[1]->asn)->toBe(13335)
+        ->and($events[1]->user_agent)->toBe('curl/8.0')
+        ->and($events[2]->user_agent)->toBeNull()
+        ->and($events->pluck('payload')->all())->toEqual($records);
+});
+
+it('classifies background execution records and compatibility aliases', function (): void {
+    $job = new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: null,
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [
+            ['t' => 'scheduled-task', 'name' => 'schedule:run', 'ranQueries' => true],
+            ['t' => 'queued_job', 'name' => 'SendWelcomeEmail', 'has_queries' => 0],
+            ['t' => 'artisan-command', 'name' => 'reports:build', 'hasQueries' => 'true'],
+        ],
+    );
+
+    $job->handle(new IptoAsnLookup(null));
+
+    $events = RawEvent::query()->orderBy('id')->get();
+
+    expect($events->pluck('actor')->all())->toBe(['scheduled', 'job', 'command'])
+        ->and($events->pluck('ran_queries')->all())->toBe([true, false, true]);
+});
+
+it('resolves only public addresses from the local iptoasn fixture', function (?string $ipAddress, ?int $expectedAsn): void {
+    $lookup = new IptoAsnLookup(__DIR__.'/Fixtures/ip2asn.tsv');
+
+    expect($lookup->lookup($ipAddress))->toBe($expectedAsn);
+})->with([
+    'public address' => ['1.1.1.1', 13335],
+    'RFC1918' => ['10.10.10.10', null],
+    'loopback' => ['127.0.0.1', null],
+    'link-local' => ['169.254.1.1', null],
+    'CGNAT' => ['100.64.1.1', null],
+    'IPv6 ULA' => ['fd00::1', null],
+    'malformed' => ['not-an-ip', null],
+    'absent' => [null, null],
+]);
 
 it('frames telemetry queue processing as package system authority and cleans up afterward', function (): void {
     $job = new ProcessTelemetryBatch('checkout', null, now()->toAtomString(), []);

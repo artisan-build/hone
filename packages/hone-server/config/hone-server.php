@@ -12,6 +12,10 @@ return [
 
     // Use an async connection such as redis for throughput; afterResponse keeps ingest unblocked even on sync.
     'queue' => env('HONE_QUEUE_CONNECTION'),
+    'asn' => [
+        // Path to an uncompressed local iptoasn.com TSV dataset. The dataset is not distributed with Hone.
+        'iptoasn_path' => env('HONE_IPTOASN_PATH'),
+    ],
     'mcp' => [
         'path' => env('HONE_MCP_PATH', '/mcp'),
     ],
