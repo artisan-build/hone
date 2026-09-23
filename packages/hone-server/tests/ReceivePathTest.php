@@ -205,7 +205,7 @@ it('enriches real Nightwatch request records without changing their opaque paylo
             'method' => 'GET',
             'route_path' => '/',
             'user' => '',
-            'queries' => 0,
+            'queries' => 1,
             'ip' => '8.8.8.8',
             'headers' => json_encode([
                 'CF-Connecting-IP' => ['1.1.1.1'],
@@ -247,7 +247,7 @@ it('enriches real Nightwatch request records without changing their opaque paylo
 
     expect($events)->toHaveCount(3)
         ->and($events->pluck('actor')->all())->toBe(['guest', 'guest', 'human'])
-        ->and($events->pluck('ran_queries')->all())->toBe([false, false, true])
+        ->and($events->pluck('ran_queries')->all())->toBe([true, false, true])
         ->and($events[0]->client_ip)->toBe('1.1.1.1')
         ->and($events[0]->asn)->toBe(13335)
         ->and($events[0]->user_agent)->toBe('Mozilla/5.0')
