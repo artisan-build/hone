@@ -200,10 +200,12 @@ it('processes telemetry batches into raw events', function (): void {
 it('enriches real Nightwatch request records without changing their opaque payloads', function (): void {
     $records = [
         [
+            'v' => 1,
             't' => 'request',
             'method' => 'GET',
             'route_path' => '/',
-            'ran_queries' => false,
+            'user' => '',
+            'queries' => 0,
             'ip' => '8.8.8.8',
             'headers' => json_encode([
                 'CF-Connecting-IP' => ['1.1.1.1'],
@@ -218,19 +220,22 @@ it('enriches real Nightwatch request records without changing their opaque paylo
             ], JSON_THROW_ON_ERROR),
         ],
         [
+            'v' => 1,
             't' => 'request',
             'method' => 'GET',
             'route_path' => '/static',
-            'ran_queries' => false,
+            'user' => '',
+            'queries' => 0,
             'ip' => '1.1.1.1',
             'headers' => ['user-agent' => 'curl/8.0'],
         ],
         [
+            'v' => 1,
             't' => 'request',
             'method' => 'GET',
             'route_path' => '/dashboard',
-            'ran_queries' => true,
-            'user' => ['id' => '42'],
+            'queries' => 2,
+            'user' => '42',
             'ip' => '1.1.1.1',
         ],
     ];
@@ -264,8 +269,8 @@ it('classifies background execution records and compatibility aliases', function
         deploy: null,
         sentAt: '2026-06-09T12:00:00+00:00',
         records: [
-            ['t' => 'scheduled-task', 'name' => 'schedule:run', 'ranQueries' => true],
-            ['t' => 'queued_job', 'name' => 'SendWelcomeEmail', 'has_queries' => 0],
+            ['v' => 1, 't' => 'scheduled-task', 'name' => 'schedule:run', 'status' => 'processed', 'queries' => 0],
+            ['v' => 1, 't' => 'job-attempt', 'name' => 'SendWelcomeEmail', 'status' => 'processed', 'queries' => 4],
             ['t' => 'artisan-command', 'name' => 'reports:build', 'hasQueries' => 'true'],
         ],
     );
@@ -275,7 +280,7 @@ it('classifies background execution records and compatibility aliases', function
     $events = RawEvent::query()->orderBy('id')->get();
 
     expect($events->pluck('actor')->all())->toBe(['scheduled', 'job', 'command'])
-        ->and($events->pluck('ran_queries')->all())->toBe([true, false, true]);
+        ->and($events->pluck('ran_queries')->all())->toBe([false, true, true]);
 });
 
 it('resolves only public addresses from the local iptoasn fixture', function (?string $ipAddress, ?int $expectedAsn): void {

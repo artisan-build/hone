@@ -128,7 +128,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
         $actor = match ($executionType) {
             'request', 'http-request' => $this->hasAuthenticatedUser($record) ? 'human' : 'guest',
             'scheduled-task', 'scheduled' => 'scheduled',
-            'queued-job', 'job' => 'job',
+            'queued-job', 'job', 'job-attempt' => 'job',
             'command', 'artisan-command' => 'command',
             default => null,
         };
@@ -143,7 +143,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
 
         return [
             'actor' => $actor,
-            'ran_queries' => $this->booleanValue($record, ['ran_queries', 'ranQueries', 'has_queries', 'hasQueries']),
+            'ran_queries' => $this->booleanValue($record, ['queries', 'ran_queries', 'ranQueries', 'has_queries', 'hasQueries']),
             'response' => $isRequest ? $this->responseContext($record) : null,
             'user_agent' => $actor === 'guest' ? $this->userAgent($record, $headers) : null,
             'client_ip' => $clientIp,
