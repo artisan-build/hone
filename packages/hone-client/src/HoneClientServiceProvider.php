@@ -6,7 +6,10 @@ namespace ArtisanBuild\HoneClient;
 
 use ArtisanBuild\HoneClient\Commands\InstallCommand;
 use ArtisanBuild\HoneClient\Commands\UpdateCommand;
+use ArtisanBuild\HoneClient\Http\Middleware\CaptureResponseContext;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
+use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
@@ -70,6 +73,10 @@ final class HoneClientServiceProvider extends ServiceProvider
             }
 
             $this->warnIfInsecureUrl((string) $url);
+
+            /** @var Kernel $kernel */
+            $kernel = $this->app->make(HttpKernelContract::class);
+            $kernel->prependMiddleware(CaptureResponseContext::class);
 
             $core = $this->app->make(Core::class);
             $core->ingest = $this->app->make(HoneIngest::class);

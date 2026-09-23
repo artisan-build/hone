@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use ArtisanBuild\HoneClient\HoneClientServiceProvider;
 use ArtisanBuild\HoneClient\HoneIngest;
+use ArtisanBuild\HoneClient\Http\Middleware\CaptureResponseContext;
 use ArtisanBuild\HoneContracts\Envelope;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
+use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\File;
@@ -64,6 +67,18 @@ function bindFakeNightwatchCore(mixed $ingest = null): object
     return $core;
 }
 
+/**
+ * @return array<int, class-string|string>
+ */
+function honeClientGlobalMiddleware(): array
+{
+    $kernel = app(HttpKernelContract::class);
+
+    assert($kernel instanceof Kernel);
+
+    return $kernel->getGlobalMiddleware();
+}
+
 function honeIngest(
     int $bufferLimit = 500,
     float $connectTimeout = 0.5,
@@ -91,7 +106,8 @@ it('rebinds nightwatch core ingest when url and token are configured', function 
 
     runHoneClientBootedRebind();
 
-    expect(app(Core::class)->ingest)->toBeInstanceOf(HoneIngest::class);
+    expect(app(Core::class)->ingest)->toBeInstanceOf(HoneIngest::class)
+        ->and(honeClientGlobalMiddleware())->toHaveKey(0, CaptureResponseContext::class);
 });
 
 it('stays inert when neither url nor token are configured', function (): void {
@@ -104,7 +120,8 @@ it('stays inert when neither url nor token are configured', function (): void {
     runHoneClientBootedRebind();
 
     expect(app(Core::class)->ingest)->toBe($original)
-        ->and(app(Core::class)->ingest)->not->toBeInstanceOf(HoneIngest::class);
+        ->and(app(Core::class)->ingest)->not->toBeInstanceOf(HoneIngest::class)
+        ->and(honeClientGlobalMiddleware())->not->toContain(CaptureResponseContext::class);
 });
 
 it('stays inert and logs a warning when only url is configured', function (): void {
@@ -119,11 +136,44 @@ it('stays inert and logs a warning when only url is configured', function (): vo
     runHoneClientBootedRebind();
 
     expect(app(Core::class)->ingest)->toBe($original)
-        ->and(app(Core::class)->ingest)->not->toBeInstanceOf(HoneIngest::class);
+        ->and(app(Core::class)->ingest)->not->toBeInstanceOf(HoneIngest::class)
+        ->and(honeClientGlobalMiddleware())->not->toContain(CaptureResponseContext::class);
 
     Log::shouldHaveReceived('warning')
         ->once()
         ->with('Hone is half-configured: set both HONE_URL and HONE_TOKEN, or neither.');
+});
+
+it('stays inert and logs a warning when only token is configured', function (): void {
+    Log::spy();
+
+    config()->set('hone.url', null);
+    config()->set('hone.token', 'secret-token');
+
+    $original = new stdClass;
+    bindFakeNightwatchCore($original);
+
+    runHoneClientBootedRebind();
+
+    expect(app(Core::class)->ingest)->toBe($original)
+        ->and(app(Core::class)->ingest)->not->toBeInstanceOf(HoneIngest::class)
+        ->and(honeClientGlobalMiddleware())->not->toContain(CaptureResponseContext::class);
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->with('Hone is half-configured: set both HONE_URL and HONE_TOKEN, or neither.');
+});
+
+it('stays inert when nightwatch core is not bound', function (): void {
+    config()->set('hone.url', 'https://hone.test/ingest');
+    config()->set('hone.token', 'secret-token');
+
+    expect(app()->bound(Core::class))->toBeFalse();
+
+    runHoneClientBootedRebind();
+
+    expect(app()->bound(Core::class))->toBeFalse()
+        ->and(honeClientGlobalMiddleware())->not->toContain(CaptureResponseContext::class);
 });
 
 it('logs a warning when configured with an insecure hone url', function (): void {
