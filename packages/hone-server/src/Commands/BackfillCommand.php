@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Commands;
 
 use ArtisanBuild\BuiltForCloud\Commands\SystemAuthorityCommand;
+use ArtisanBuild\HoneServer\Maintenance\ActivityTimelineRollup;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceMarkers;
 use ArtisanBuild\HoneServer\Maintenance\RawEventRollup;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 final class BackfillCommand extends SystemAuthorityCommand
@@ -17,10 +19,13 @@ final class BackfillCommand extends SystemAuthorityCommand
         {to : Last UTC bucket date to rebuild, inclusive (Y-m-d)}
         {--restart : Ignore the saved checkpoint and rebuild the range from the first day}';
 
-    protected $description = 'Rebuild aggregates for an explicit historical range, one bucket day at a time, resuming from its checkpoint.';
+    protected $description = 'Rebuild aggregates and activity buckets for a historical range, one UTC day at a time.';
 
-    public function handle(RawEventRollup $rollup, MaintenanceMarkers $markers): int
-    {
+    public function handle(
+        RawEventRollup $rollup,
+        ActivityTimelineRollup $activityTimelineRollup,
+        MaintenanceMarkers $markers,
+    ): int {
         $from = $this->bucketDate('from');
         $to = $this->bucketDate('to');
         $startedAt = CarbonImmutable::now('UTC');
@@ -38,21 +43,52 @@ final class BackfillCommand extends SystemAuthorityCommand
         }
 
         $checkpointKey = sprintf('backfill.%s.%s', $from->toDateString(), $to->toDateString());
+        $activityCheckpointKey = sprintf('activity_backfill.%s.%s', $from->toDateString(), $to->toDateString());
         $checkpoint = $this->option('restart') ? null : $markers->get($checkpointKey);
-        $resumeFrom = $checkpoint === null ? $from : CarbonImmutable::parse($checkpoint, 'UTC')->addDay();
+        $activityCheckpoint = $this->option('restart') ? null : $markers->get($activityCheckpointKey);
+        $aggregateResumeFrom = $checkpoint === null ? $from : CarbonImmutable::parse($checkpoint, 'UTC')->addDay();
+        $activityResumeFrom = $activityCheckpoint === null ? $from : CarbonImmutable::parse($activityCheckpoint, 'UTC')->addDay();
 
-        if ($resumeFrom->greaterThan($to)) {
+        if ($this->hasUnbucketedEvents($from, $to->addDay())) {
+            $activityResumeFrom = $from;
+            $aggregateResumeFrom = $from;
+        }
+
+        $resumeFrom = $aggregateResumeFrom->min($activityResumeFrom);
+
+        if ($aggregateResumeFrom->greaterThan($to) && $activityResumeFrom->greaterThan($to)) {
+            $coveredUntil = $to->addDay()->min($startedAt);
+            $markers->advanceRollupWatermark($from, $coveredUntil);
+            $markers->advanceActivityRollupWatermark($from, $coveredUntil);
+
             $this->info(sprintf('Backfill %s to %s is already complete.', $from->toDateString(), $to->toDateString()));
 
             return self::SUCCESS;
         }
 
         for ($day = $resumeFrom; $day->lessThanOrEqualTo($to); $day = $day->addDay()) {
-            $result = $rollup->rollupDay($day, CarbonImmutable::now('UTC'));
-            $markers->put($checkpointKey, $day->toDateString());
-            $markers->advanceRollupWatermark($day, $day->addDay()->min($startedAt));
+            $result = ['groups' => 0, 'rows' => 0];
+            $activityResult = ['buckets' => 0];
 
-            $this->line(sprintf('%s: %d groups, %d aggregate rows.', $day->toDateString(), $result['groups'], $result['rows']));
+            if ($day->greaterThanOrEqualTo($activityResumeFrom)) {
+                $activityResult = $activityTimelineRollup->rollupDay($day, CarbonImmutable::now('UTC'));
+                $markers->advanceActivityRollupWatermark($day, $day->addDay()->min($startedAt));
+                $markers->put($activityCheckpointKey, $day->toDateString());
+            }
+
+            if ($day->greaterThanOrEqualTo($aggregateResumeFrom)) {
+                $result = $rollup->rollupDay($day, CarbonImmutable::now('UTC'));
+                $markers->advanceRollupWatermark($day, $day->addDay()->min($startedAt));
+                $markers->put($checkpointKey, $day->toDateString());
+            }
+
+            $this->line(sprintf(
+                '%s: %d groups, %d aggregate rows, %d activity buckets.',
+                $day->toDateString(),
+                $result['groups'],
+                $result['rows'],
+                $activityResult['buckets'],
+            ));
         }
 
         $this->info(sprintf(
@@ -80,5 +116,14 @@ final class BackfillCommand extends SystemAuthorityCommand
         }
 
         return $date instanceof CarbonImmutable && $date->toDateString() === $value ? $date : null;
+    }
+
+    private function hasUnbucketedEvents(CarbonImmutable $from, CarbonImmutable $until): bool
+    {
+        return DB::connection('hone')->table('raw_events')
+            ->where('occurred_at', '>=', $from)
+            ->where('occurred_at', '<', $until)
+            ->whereNull('activity_bucketed_at')
+            ->exists();
     }
 }
