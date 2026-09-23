@@ -8,12 +8,14 @@ use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
 use ArtisanBuild\HoneServer\Models\ActivityBucket;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
     Carbon::setTestNow('2026-06-09 12:00:00+00');
 });
 
 afterEach(function (): void {
+    DB::connection('hone')->statement("SET TIME ZONE 'UTC'");
     Carbon::setTestNow();
 });
 
@@ -51,6 +53,23 @@ it('returns scenario B compute unchanged and limits database wake time to humans
             ],
         ],
     ]);
+});
+
+it('preserves bucket instants when the PostgreSQL session uses a non-UTC timezone', function (): void {
+    seedActivityBucket('timezone-app', '2026-06-09 09:00:00+00', ['human_requests' => 1]);
+
+    DB::connection('hone')->statement("SET TIME ZONE 'Asia/Tokyo'");
+
+    $payload = awakeSegmentsPayload(
+        'timezone-app',
+        from: '2026-06-09T09:00:00Z',
+        to: '2026-06-09T09:00:00Z',
+    );
+
+    expect($payload['compute_segments'][0]['from'])->toBe('2026-06-09T09:00:00Z')
+        ->and($payload['compute_segments'][0]['to'])->toBe('2026-06-09T09:05:00Z')
+        ->and($payload['database_segments'][0]['from'])->toBe('2026-06-09T09:00:00Z')
+        ->and($payload['database_segments'][0]['to'])->toBe('2026-06-09T09:05:00Z');
 });
 
 it('returns scenario C overlapping background coverage and scheduled database frequency', function (): void {

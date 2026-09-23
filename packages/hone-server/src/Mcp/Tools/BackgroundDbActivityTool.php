@@ -38,7 +38,7 @@ final class BackgroundDbActivityTool extends Tool
             ->selectRaw('coalesce(sum(jobs_with_queries), 0) as job_runs')
             ->selectRaw('count(*) filter (where jobs_with_queries > 0) as job_active_minutes')
             ->where('app', $validated['app'])
-            ->whereBetween('bucket_minute', [$window['from'], $window['to']])
+            ->whereBetween('bucket_minute', [$window['from']->toIso8601String(), $window['to']->toIso8601String()])
             ->firstOrFail();
 
         $activities = [];

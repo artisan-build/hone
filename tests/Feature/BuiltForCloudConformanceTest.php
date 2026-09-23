@@ -34,6 +34,8 @@ use ArtisanBuild\HoneServer\Commands\RollupCommand;
 use ArtisanBuild\HoneServer\HoneServerServiceProvider;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
+use ArtisanBuild\HoneServer\Mcp\Tools\AwakeSegmentsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
@@ -163,6 +165,8 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
             'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
         ]),
         'mcp_delegated' => $sorted([
+            AwakeSegmentsTool::class,
+            BackgroundDbActivityTool::class,
             CacheStatsTool::class,
             CommandStatsTool::class,
             DeploysTool::class,

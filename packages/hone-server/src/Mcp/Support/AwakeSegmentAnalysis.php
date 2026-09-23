@@ -6,6 +6,8 @@ namespace ArtisanBuild\HoneServer\Mcp\Support;
 
 use ArtisanBuild\HoneServer\Models\ActivityBucket;
 use Carbon\CarbonImmutable;
+use DateTimeInterface;
+use UnexpectedValueException;
 
 final class AwakeSegmentAnalysis
 {
@@ -39,12 +41,18 @@ final class AwakeSegmentAnalysis
                 'jobs_without_queries',
             ])
             ->where('app', $app)
-            ->whereBetween('bucket_minute', [$from, $to])
+            ->whereBetween('bucket_minute', [$from->toIso8601String(), $to->toIso8601String()])
             ->orderBy('bucket_minute')
             ->cursor();
 
         foreach ($buckets as $bucket) {
-            $minute = CarbonImmutable::parse((string) $bucket->getAttribute('bucket_minute'), 'UTC')->utc();
+            $bucketMinute = $bucket->getAttribute('bucket_minute');
+
+            if (! $bucketMinute instanceof DateTimeInterface) {
+                throw new UnexpectedValueException('Activity bucket minute must be a date-time value.');
+            }
+
+            $minute = CarbonImmutable::instance($bucketMinute)->utc();
             $hasHumanActivity = (int) $bucket->getAttribute('human_requests') > 0;
             $hasGuestActivity = (int) $bucket->getAttribute('guest_requests') > 0;
             $hasGuestDatabaseActivity = (int) $bucket->getAttribute('guest_requests_with_queries') > 0;
