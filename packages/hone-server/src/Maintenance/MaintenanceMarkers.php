@@ -10,12 +10,14 @@ use Illuminate\Support\Facades\DB;
 /**
  * Durable maintenance state on the telemetry connection.
  *
- * The rollup watermark is the prune boundary: every raw event that occurred before it has been
- * aggregated, so pruning below it never destroys data the aggregates do not already hold.
+ * The aggregate and activity rollup watermarks jointly form the prune boundary: every raw event
+ * before both has been represented durably, so pruning below their minimum does not destroy data.
  */
 final class MaintenanceMarkers
 {
     public const ROLLUP_WATERMARK = 'rollup.watermark';
+
+    public const ACTIVITY_ROLLUP_WATERMARK = 'activity_rollup.watermark';
 
     public const MAINTAIN_LAST_SUCCESS = 'maintain.last_success_at';
 
@@ -61,6 +63,23 @@ final class MaintenanceMarkers
         return $this->timestamp(self::ROLLUP_WATERMARK);
     }
 
+    public function activityRollupWatermark(): ?CarbonImmutable
+    {
+        return $this->timestamp(self::ACTIVITY_ROLLUP_WATERMARK);
+    }
+
+    public function rawPruneWatermark(): ?CarbonImmutable
+    {
+        $aggregateWatermark = $this->rollupWatermark();
+        $activityWatermark = $this->activityRollupWatermark();
+
+        if ($aggregateWatermark === null || $activityWatermark === null) {
+            return null;
+        }
+
+        return $aggregateWatermark->min($activityWatermark);
+    }
+
     /**
      * Record that raw events occurring in [`$coveredFrom`, `$coveredUntil`) have been aggregated.
      *
@@ -69,7 +88,27 @@ final class MaintenanceMarkers
      */
     public function advanceRollupWatermark(CarbonImmutable $coveredFrom, CarbonImmutable $coveredUntil): bool
     {
-        $watermark = $this->rollupWatermark();
+        return $this->advanceWatermark(self::ROLLUP_WATERMARK, $coveredFrom, $coveredUntil);
+    }
+
+    public function advanceActivityRollupWatermark(CarbonImmutable $coveredFrom, CarbonImmutable $coveredUntil): bool
+    {
+        $unbucketedEventsExist = DB::connection('hone')->table('raw_events')
+            ->where('occurred_at', '>=', $coveredFrom)
+            ->where('occurred_at', '<', $coveredUntil)
+            ->whereNull('activity_bucketed_at')
+            ->exists();
+
+        if ($unbucketedEventsExist) {
+            return false;
+        }
+
+        return $this->advanceWatermark(self::ACTIVITY_ROLLUP_WATERMARK, $coveredFrom, $coveredUntil);
+    }
+
+    private function advanceWatermark(string $key, CarbonImmutable $coveredFrom, CarbonImmutable $coveredUntil): bool
+    {
+        $watermark = $this->timestamp($key);
 
         if ($watermark === null) {
             $olderEventsExist = DB::connection('hone')->table('raw_events')
@@ -83,7 +122,7 @@ final class MaintenanceMarkers
             return false;
         }
 
-        $this->putTimestamp(self::ROLLUP_WATERMARK, $coveredUntil);
+        $this->putTimestamp($key, $coveredUntil);
 
         return true;
     }

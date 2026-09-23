@@ -39,6 +39,8 @@ return [
         'raw_hours' => (int) env('HONE_RETENTION_RAW_HOURS', 72),
         'aggregate_days' => (int) env('HONE_RETENTION_AGGREGATE_DAYS', 90),
         'sample_days' => (int) env('HONE_RETENTION_SAMPLE_DAYS', 7),
+        // Timeline buckets outlive raw telemetry so annual activity comparisons remain available.
+        'timeline_days' => (int) env('HONE_RETENTION_TIMELINE_DAYS', 400),
     ],
     /*
      | The hourly rollup re-reads whole UTC bucket days from (now - late_arrival_hours) through today,

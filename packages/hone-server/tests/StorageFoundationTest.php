@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\HoneServer\Models\ActivityBucket;
 use ArtisanBuild\HoneServer\Models\Aggregate;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Models\Sample;
@@ -12,7 +13,8 @@ use Illuminate\Support\Facades\Schema;
 it('creates the storage tables with jsonb payload columns', function (): void {
     expect(Schema::connection('hone')->hasTable('raw_events'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('aggregates'))->toBeTrue()
-        ->and(Schema::connection('hone')->hasTable('samples'))->toBeTrue();
+        ->and(Schema::connection('hone')->hasTable('samples'))->toBeTrue()
+        ->and(Schema::connection('hone')->hasTable('activity_buckets'))->toBeTrue();
 
     $payloadColumns = DB::connection('hone')->table('information_schema.columns')
         ->where('table_schema', 'public')
@@ -85,6 +87,19 @@ it('creates aggregate and sample factory rows while preserving nullable deploys'
         ->and($sample->payload)->toHaveKey('t');
 });
 
+it('creates activity bucket factory rows with typed UTC minute counts', function (): void {
+    $bucket = ActivityBucket::factory()->create([
+        'bucket_minute' => '2026-06-09 12:34:00+00',
+        'human_requests' => 2,
+        'guest_requests_with_queries' => 3,
+    ]);
+
+    expect($bucket->exists)->toBeTrue()
+        ->and($bucket->bucket_minute->utc()->toIso8601ZuluString())->toBe('2026-06-09T12:34:00Z')
+        ->and($bucket->human_requests)->toBe(2)
+        ->and($bucket->guest_requests_with_queries)->toBe(3);
+});
+
 it('supports representative aggregate read queries', function (): void {
     Aggregate::factory()->create([
         'app' => 'checkout',
@@ -126,7 +141,7 @@ it('supports representative aggregate read queries', function (): void {
 it('creates documented indexes for read and rollup patterns', function (): void {
     $indexes = DB::connection('hone')->table('pg_indexes')
         ->where('schemaname', 'public')
-        ->whereIn('tablename', ['raw_events', 'aggregates', 'samples'])
+        ->whereIn('tablename', ['raw_events', 'aggregates', 'samples', 'activity_buckets'])
         ->pluck('indexdef', 'indexname')
         ->all();
 
@@ -136,5 +151,7 @@ it('creates documented indexes for read and rollup patterns', function (): void 
         'aggregates_rollup_unique',
         'aggregates_app_record_type_metric_bucket_date_index',
         'samples_app_record_type_normalized_key_occurred_at_index',
+        'activity_buckets_app_bucket_minute_unique',
+        'activity_buckets_bucket_minute_index',
     ])->and($indexes['aggregates_rollup_unique'])->toContain('NULLS NOT DISTINCT');
 });

@@ -76,6 +76,7 @@ it('runs Hone Postgres migrations and persists raw events on the hone connection
     expect(Schema::connection('hone')->hasTable('raw_events'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('aggregates'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('samples'))->toBeTrue()
+        ->and(Schema::connection('hone')->hasTable('activity_buckets'))->toBeTrue()
         ->and(Schema::hasTable('credentials'))->toBeTrue()
         ->and(Schema::hasColumn('credentials', 'purpose'))->toBeTrue()
         ->and(Schema::hasTable('ownership_claims'))->toBeTrue()

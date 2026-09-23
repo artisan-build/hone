@@ -31,6 +31,7 @@ final class RawEvent extends Model
             'ran_queries' => 'boolean',
             'asn' => 'integer',
             'occurred_at' => 'datetime',
+            'activity_bucketed_at' => 'datetime',
         ];
     }
 

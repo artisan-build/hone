@@ -218,6 +218,8 @@ it('prunes expired raw events samples and aggregates while keeping in-window row
     $expiredAggregate = Aggregate::factory()->create(['bucket_date' => now()->subDays(11)->toDateString()]);
     $keptAggregate = Aggregate::factory()->create(['bucket_date' => now()->subDays(10)->toDateString()]);
     app(MaintenanceMarkers::class)->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, CarbonImmutable::now());
+    app(MaintenanceMarkers::class)->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, CarbonImmutable::now());
+    RawEvent::query()->update(['activity_bucketed_at' => now()]);
 
     Artisan::call('hone:prune');
 
@@ -448,8 +450,9 @@ it('backfills an explicit range one bucket day at a time without reading outside
     DB::connection('hone')->disableQueryLog();
 
     expect($exitCode)->toBe(0)
-        ->and($groupingReads)->toHaveCount(3)
-        ->and($groupingReads->every(fn (array $entry): bool => str_contains($entry['query'], 'WHERE occurred_at >= ? AND occurred_at < ?')))->toBeTrue()
+        ->and($groupingReads)->toHaveCount(6)
+        ->and($groupingReads->every(fn (array $entry): bool => str_contains($entry['query'], 'occurred_at >= ?')
+            && str_contains($entry['query'], 'occurred_at < ?')))->toBeTrue()
         ->and(Aggregate::query()->where('metric', 'count')->orderBy('normalized_key')->pluck('normalized_key')->all())
         ->toBe(['key-2026-06-02', 'key-2026-06-03', 'key-2026-06-04'])
         ->and(app(MaintenanceMarkers::class)->get('backfill.2026-06-02.2026-06-04'))->toBe('2026-06-04');
@@ -471,7 +474,7 @@ it('resumes an interrupted backfill from its checkpoint', function (): void {
     Artisan::call('hone:backfill', ['from' => '2026-06-02', 'to' => '2026-06-04']);
 
     expect(Aggregate::query()->where('metric', 'count')->orderBy('normalized_key')->pluck('normalized_key')->all())
-        ->toBe(['key-2026-06-03', 'key-2026-06-04']);
+        ->toBe(['key-2026-06-02', 'key-2026-06-03', 'key-2026-06-04']);
 
     DB::connection('hone')->enableQueryLog();
     Artisan::call('hone:backfill', ['from' => '2026-06-02', 'to' => '2026-06-04']);
@@ -485,6 +488,35 @@ it('resumes an interrupted backfill from its checkpoint', function (): void {
     Artisan::call('hone:backfill', ['from' => '2026-06-02', 'to' => '2026-06-04', '--restart' => true]);
 
     expect(Aggregate::query()->where('metric', 'count')->count())->toBe(3);
+});
+
+it('backfills activity when a legacy aggregate checkpoint is already complete', function (): void {
+    rawActivityForBackfill('checkout', '2026-06-02 12:34:00+00');
+    app(MaintenanceMarkers::class)->put('backfill.2026-06-02.2026-06-02', '2026-06-02');
+
+    Artisan::call('hone:backfill', ['from' => '2026-06-02', 'to' => '2026-06-02']);
+
+    expect(DB::connection('hone')->table('activity_buckets')->value('guest_requests'))->toBe(1)
+        ->and(app(MaintenanceMarkers::class)->get('activity_backfill.2026-06-02.2026-06-02'))->toBe('2026-06-02');
+});
+
+it('advances across a completed backfill after an earlier gap is closed', function (): void {
+    $markers = app(MaintenanceMarkers::class);
+    $markers->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, CarbonImmutable::parse('2026-06-01 00:00:00+00'));
+    $markers->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, CarbonImmutable::parse('2026-06-01 00:00:00+00'));
+    rawActivityForBackfill('checkout', '2026-06-03 12:34:00+00');
+
+    Artisan::call('hone:backfill', ['from' => '2026-06-03', 'to' => '2026-06-03']);
+
+    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-01T00:00:00Z')
+        ->and($markers->activityRollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-01T00:00:00Z');
+
+    Artisan::call('hone:backfill', ['from' => '2026-06-01', 'to' => '2026-06-02']);
+    Artisan::call('hone:backfill', ['from' => '2026-06-03', 'to' => '2026-06-03']);
+
+    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-04T00:00:00Z')
+        ->and($markers->activityRollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-04T00:00:00Z')
+        ->and(Artisan::output())->toContain('already complete');
 });
 
 it('rejects backfill ranges that are malformed, reversed, or end after today', function (array $arguments): void {
@@ -557,8 +589,12 @@ it('seeds the watermark from the last legacy whole-table rollup write', function
 it('retains never-aggregated raw events and prunes aggregated ones when the rollup fails', function (): void {
     config()->set('hone-server.retention.raw_hours', 2);
     app(MaintenanceMarkers::class)->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, CarbonImmutable::parse('2026-06-09 09:00:00+00'));
+    app(MaintenanceMarkers::class)->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, CarbonImmutable::parse('2026-06-09 09:00:00+00'));
 
-    $aggregatedAndExpired = RawEvent::factory()->create(['occurred_at' => Carbon::parse('2026-06-09 08:00:00+00')]);
+    $aggregatedAndExpired = RawEvent::factory()->create([
+        'occurred_at' => Carbon::parse('2026-06-09 08:00:00+00'),
+        'activity_bucketed_at' => now(),
+    ]);
     $unaggregatedAndExpired = RawEvent::factory()->create(['occurred_at' => Carbon::parse('2026-06-09 10:00:00+00')]);
     $insideRetention = RawEvent::factory()->create(['occurred_at' => Carbon::parse('2026-06-09 12:30:00+00')]);
 
@@ -582,13 +618,17 @@ it('prunes nothing raw before any rollup watermark exists', function (): void {
     Artisan::call('hone:prune');
 
     expect(RawEvent::query()->count())->toBe(1)
-        ->and(Artisan::output())->toContain('not yet aggregated');
+        ->and(Artisan::output())->toContain('not yet fully rolled up');
 });
 
 it('reports a thrown rollup with its exception class, still prunes, and exits non-zero', function (): void {
     config()->set('hone-server.retention.raw_hours', 1);
     app(MaintenanceMarkers::class)->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, CarbonImmutable::now());
-    $expired = RawEvent::factory()->create(['occurred_at' => now()->subHours(3)]);
+    app(MaintenanceMarkers::class)->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, CarbonImmutable::now());
+    $expired = RawEvent::factory()->create([
+        'occurred_at' => now()->subHours(3),
+        'activity_bucketed_at' => now(),
+    ]);
 
     Artisan::command('hone:rollup', function (): never {
         throw new LogicException('rollup exploded');
@@ -658,4 +698,15 @@ function seedDistinctRawEventGroups(int $groups, DateTimeInterface $occurredAt):
          select 'checkout', 'query', null, ?, 'key-' || n, '{}'::jsonb from generate_series(1, ?) as n",
         [$occurredAt, $groups],
     );
+}
+
+function rawActivityForBackfill(string $app, string $occurredAt): RawEvent
+{
+    return RawEvent::factory()->create([
+        'app' => $app,
+        'record_type' => 'request',
+        'occurred_at' => Carbon::parse($occurredAt),
+        'actor' => 'guest',
+        'ran_queries' => false,
+    ]);
 }
