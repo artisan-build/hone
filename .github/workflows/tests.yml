@@ -67,6 +67,9 @@ jobs:
       - name: Create Hone Server Test Database
         run: createdb -h 127.0.0.1 -p 5432 -U root hone_server_test
 
+      - name: Run Rector
+        run: composer rector:check
+
       - name: Run PHPStan
         run: composer stan
 
