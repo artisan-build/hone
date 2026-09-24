@@ -11,6 +11,7 @@ use Composer\InstalledVersions;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
+use Symfony\Component\Process\Process;
 
 it('owns the exact Hone D-UI-3 application overlay', function (): void {
     /** @var array<string, mixed> $appConfig */
@@ -50,9 +51,9 @@ it('merges package defaults and owns the human auth foundation through the relea
     $rootComposer = json_decode((string) file_get_contents(base_path('composer.json')), true, flags: JSON_THROW_ON_ERROR);
     $serverComposer = json_decode((string) file_get_contents(base_path('packages/hone-server/composer.json')), true, flags: JSON_THROW_ON_ERROR);
 
-    expect(data_get($rootComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.16.0')
-        ->and(data_get($serverComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.16.0')
-        ->and(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.16.0')
+    expect(data_get($rootComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.17')
+        ->and(data_get($serverComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.17')
+        ->and(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.17.0')
         ->and(config('auth.defaults.guard'))->toBe('web')
         ->and(config('auth.guards.web'))->toBe([
             'driver' => 'session',
@@ -63,6 +64,21 @@ it('merges package defaults and owns the human auth foundation through the relea
         ])->and(app()->getLoadedProviders())->toHaveKey(BuiltForCloudServiceProvider::class, true)
         ->and(ThinHostConformance::configurationArtifacts((array) config('auth')))->toBe([])
         ->and(file_exists(config_path('auth.php')))->toBeFalse();
+});
+
+it('defaults to cookie sessions when no session driver is configured', function (): void {
+    $autoloadPath = var_export(base_path('vendor/autoload.php'), true);
+    $bootstrapPath = var_export(base_path('bootstrap/app.php'), true);
+    $sessionConfigPath = var_export(config_path('session.php'), true);
+    $process = new Process([
+        PHP_BINARY,
+        '-r',
+        "require {$autoloadPath}; require {$bootstrapPath}; echo (require {$sessionConfigPath})['driver'];",
+    ], env: ['SESSION_DRIVER' => false]);
+
+    $process->mustRun();
+
+    expect($process->getOutput())->toBe('cookie');
 });
 
 it('runs fresh package-owned migrations and resolves package users through the web guard', function (): void {

@@ -7,7 +7,6 @@ use ArtisanBuild\BuiltForCloud\AuditActorType;
 use ArtisanBuild\BuiltForCloud\Console\AssertionBurn;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleEntryRefusalReason;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialAuditEvent;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
@@ -331,10 +330,6 @@ it('writes no session key while authenticating a delegated assertion', function 
         ->and(collect(array_keys($after))->contains(
             fn (string $key): bool => str_starts_with($key, 'login_bfc-console_'),
         ))->toBeFalse();
-
-    foreach (ConsoleSession::keys() as $key) {
-        expect($after)->not->toHaveKey($key);
-    }
 
     $response->assertHeaderMissing('Set-Cookie');
 });
