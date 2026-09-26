@@ -24,7 +24,7 @@ it('owns the exact Hone D-UI-3 application overlay', function (): void {
             'name' => 'Hone',
             'slug' => 'hone',
             'description' => 'Self-hosted, MCP-only LLM-facing telemetry for Laravel.',
-            'icon' => 'https://raw.githubusercontent.com/artisan-build/hone/main/public/favicon.svg',
+            'icon' => 'https://scalpels.app/img/products/transparent/hone.png',
             'product_url' => 'https://scalpels.app/products/hone',
         ],
         'credentials' => [
