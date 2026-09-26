@@ -12,13 +12,11 @@ use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
 
-it('boots the headless Hone app root route', function (): void {
-    $this->getJson(route('home'))
+it('serves the package-owned Hone landing page', function (): void {
+    $this->get(route('bfc.landing'))
         ->assertOk()
-        ->assertJson([
-            'name' => 'Hone',
-            'status' => 'ok',
-        ]);
+        ->assertSee('Hone')
+        ->assertSee(route('bfc.dashboard'), false);
 });
 
 it('exposes Hone envelope capabilities', function (): void {
