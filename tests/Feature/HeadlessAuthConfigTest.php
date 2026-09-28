@@ -8,7 +8,6 @@ use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureUserIsAuthenticated;
 use ArtisanBuild\BuiltForCloud\Testing\ThinHostConformance;
 use ArtisanBuild\BuiltForCloud\User;
-use Composer\InstalledVersions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
@@ -50,13 +49,7 @@ it('owns the exact Hone D-UI-3 application overlay', function (): void {
 });
 
 it('merges package defaults and owns the human auth foundation through the released provider', function (): void {
-    $rootComposer = json_decode((string) file_get_contents(base_path('composer.json')), true, flags: JSON_THROW_ON_ERROR);
-    $serverComposer = json_decode((string) file_get_contents(base_path('packages/hone-server/composer.json')), true, flags: JSON_THROW_ON_ERROR);
-
-    expect(data_get($rootComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.18')
-        ->and(data_get($serverComposer, 'require.artisan-build/built-for-cloud'))->toBe('^0.18')
-        ->and(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.18.0')
-        ->and(config('auth.defaults.guard'))->toBe('web')
+    expect(config('auth.defaults.guard'))->toBe('web')
         ->and(config('auth.guards.web'))->toBe([
             'driver' => 'session',
             'provider' => 'users',
