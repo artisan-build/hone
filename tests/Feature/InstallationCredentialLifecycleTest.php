@@ -64,7 +64,7 @@ function loginCredentialLifecycleUser(User $user): void
     test()->post('/bfc/login', [
         'email' => $user->email,
         'password' => 'test-password',
-    ])->assertRedirect('/bfc/ui');
+    ])->assertRedirect('/dashboard');
 }
 
 it('lets every package role perform the complete installation credential lifecycle in Hone', function (UserRole $role): void {

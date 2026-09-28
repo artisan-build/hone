@@ -43,6 +43,13 @@ abstract class TestCase extends Orchestra
     protected function getEnvironmentSetUp($app): void
     {
         $app['config']->set('database.default', 'hone');
+        $app['config']->set('built-for-cloud.manifest', [
+            'name' => 'Hone',
+            'slug' => 'hone',
+            'description' => 'Self-hosted, MCP-only LLM-facing telemetry for Laravel.',
+            'icon' => 'https://scalpels.app/img/products/transparent/hone.png',
+            'product_url' => 'https://scalpels.app/products/hone',
+        ]);
         $app['config']->set('auth.providers.users', [
             'driver' => 'eloquent',
             'model' => User::class,
