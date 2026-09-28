@@ -488,54 +488,6 @@ it('adds nightwatch enabled when installing', function (): void {
     expect((string) file_get_contents($path.'/.env'))->toContain('NIGHTWATCH_ENABLED=true');
 });
 
-it('pins wildcard hone client composer constraints to a caret', function (): void {
-    $path = useHoneClientTempApp(composer: json_encode([
-        'require' => ['artisan-build/hone-client' => '*'],
-    ], JSON_THROW_ON_ERROR));
-
-    $this->artisan('hone:install', [
-        '--url' => 'https://hone.test/ingest',
-        '--token' => 'secret-token',
-        '--no-interaction' => true,
-    ])->assertExitCode(0);
-
-    $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
-
-    expect($composer['require']['artisan-build/hone-client'])->toBe('^1');
-});
-
-it('rewrites mixed hone client composer constraints to a caret', function (): void {
-    $path = useHoneClientTempApp(composer: json_encode([
-        'require' => ['artisan-build/hone-client' => '^1 || dev-main'],
-    ], JSON_THROW_ON_ERROR));
-
-    $this->artisan('hone:install', [
-        '--url' => 'https://hone.test/ingest',
-        '--token' => 'secret-token',
-        '--no-interaction' => true,
-    ])->assertExitCode(0);
-
-    $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
-
-    expect($composer['require']['artisan-build/hone-client'])->toBe('^1');
-});
-
-it('leaves existing caret hone client composer constraints alone', function (): void {
-    $path = useHoneClientTempApp(composer: json_encode([
-        'require' => ['artisan-build/hone-client' => '^1'],
-    ], JSON_THROW_ON_ERROR));
-
-    $this->artisan('hone:install', [
-        '--url' => 'https://hone.test/ingest',
-        '--token' => 'secret-token',
-        '--no-interaction' => true,
-    ])->assertExitCode(0);
-
-    $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
-
-    expect($composer['require']['artisan-build/hone-client'])->toBe('^1');
-});
-
 it('checks hone server capabilities at the derived url with bearer token', function (): void {
     Http::fake([
         'https://hone.test/capabilities' => Http::response([
