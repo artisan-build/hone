@@ -13,7 +13,10 @@ use ArtisanBuild\BuiltForCloud\CredentialKind;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
 use ArtisanBuild\BuiltForCloud\LifecycleEventType;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RequestEffectCeiling;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\BuiltForCloud\OperatorAbility;
 use ArtisanBuild\BuiltForCloud\SubjectType;
@@ -104,9 +107,20 @@ it('advertises the read effect for the exact registered tool set', function (): 
     foreach ($conformance['tools'] as $toolClass) {
         $tool = app($toolClass);
 
-        expect(ToolEffect::of($tool)?->value)->toBe(Effect::Read)
+        expect((new ReflectionClass($toolClass))->getTraitNames())
+            ->toContain(AdvertisesToolEffect::class, RespectsEffectCeiling::class)
+            ->and(ToolEffect::of($tool)?->value)->toBe(Effect::Read)
             ->and($tool->toArray()['_meta']['effect'] ?? null)->toBe(Effect::Read->value);
     }
+});
+
+it('neither lists nor calls a read tool without a request effect ceiling', function (): void {
+    RequestEffectCeiling::publish(app('request'), null);
+
+    HoneMcpServer::tools()->assertNotRegistered(ListAppsTool::class);
+
+    HoneMcpServer::tool(ListAppsTool::class)
+        ->assertHasErrors(['Tool [list-apps-tool] not found.']);
 });
 
 it('conforms to the package MCP product admission contract', function (): void {
@@ -123,7 +137,7 @@ it('couples a non-default HONE_MCP_PATH to metadata and the guarded route', func
 
     $route = Route::getRoutes()->match(Request::create('/custom-mcp', 'POST'));
 
-    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class.':product');
+    expect(resolve('router')->gatherRouteMiddleware($route))->toContain(AuthenticateMcp::class.':product,read');
 
     $this->postJson('/custom-mcp')->assertUnauthorized();
 });

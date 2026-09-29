@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.19.1",
+            "version": "v0.19.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "847d559845a0c6f5bcdddf89b6ce1b4daa50a522"
+                "reference": "89219b432e26c82d2675919e618d4546e06e7648"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/847d559845a0c6f5bcdddf89b6ce1b4daa50a522",
-                "reference": "847d559845a0c6f5bcdddf89b6ce1b4daa50a522",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/89219b432e26c82d2675919e618d4546e06e7648",
+                "reference": "89219b432e26c82d2675919e618d4546e06e7648",
                 "shasum": ""
             },
             "require": {
@@ -76,9 +76,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.19.1"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.19.2"
             },
-            "time": "2026-09-29T14:04:42+00:00"
+            "time": "2026-09-29T16:42:42+00:00"
         },
         {
             "name": "artisan-build/built-for-cloud-contracts",

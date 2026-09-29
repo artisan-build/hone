@@ -8,6 +8,7 @@ use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceHealth;
@@ -32,6 +33,7 @@ final class IngestFreshnessTool extends Tool
     use AdvertisesToolClassification;
     use AdvertisesToolEffect;
     use BoundsRawEventLookback;
+    use RespectsEffectCeiling;
 
     public function handle(Request $request): Response
     {

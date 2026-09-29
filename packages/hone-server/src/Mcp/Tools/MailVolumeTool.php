@@ -8,6 +8,7 @@ use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\HandlesTotalVolumeTool;
@@ -26,6 +27,7 @@ final class MailVolumeTool extends Tool
     use AdvertisesToolClassification;
     use AdvertisesToolEffect;
     use HandlesTotalVolumeTool;
+    use RespectsEffectCeiling;
 
     protected function recordType(): string
     {
