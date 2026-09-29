@@ -15,7 +15,7 @@ uses to call an external tool), so an agent such as Claude Code can answer quest
 
 **What Hone includes.** Request, query, job and outgoing-HTTP timings rolled into daily aggregates;
 exceptions; counts for cache, queue, mail, notification, scheduled-task, command and log activity;
-comparison between deploys; and 19 read-only MCP tools over all of it.
+comparison between deploys; and 24 read-only MCP tools over all of it.
 
 **What Hone does not include.** No UI or dashboard. No alerting or paging. No distributed traces. No
 raw request bodies. No long-term raw history: individual events are deleted after 72 hours by default
@@ -791,7 +791,7 @@ For any other MCP client, the three things it needs are the same: the URL
 
 ## Using it
 
-Hone exposes **19 read-only MCP tools**. They do not modify telemetry or application data; note that
+Hone exposes **24 read-only MCP tools**. They do not modify telemetry or application data; note that
 authentication still writes credential-usage metadata — every accepted request updates that
 credential's `last_used_at`, and its first use records a lifecycle event. Every tool is classified as
 carrying customer content, because even a count can be keyed by an app id, route, user id or deploy.
