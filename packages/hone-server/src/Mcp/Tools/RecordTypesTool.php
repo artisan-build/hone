@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\BoundsRawEventLookback;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Query\Builder;
@@ -21,10 +25,13 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('List raw telemetry record types and counts within a lookback window, optionally scoped to one app.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class RecordTypesTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
     use BoundsRawEventLookback;
+    use RespectsEffectCeiling;
 
     public function handle(Request $request): Response
     {

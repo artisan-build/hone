@@ -102,7 +102,7 @@ final class HoneServerServiceProvider extends ServiceProvider
 
         $this->app->booted(function (): void {
             Mcp::web((string) config('hone-server.mcp.path', '/mcp'), HoneMcpServer::class)
-                ->middleware('bfc.mcp:product');
+                ->middleware('bfc.mcp:product,read');
         });
 
         if ($this->app->runningInConsole()) {

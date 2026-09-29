@@ -8,20 +8,20 @@
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.19.0",
+            "version": "v0.19.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "c73fab57c6c6f44a0633e1f20ed9a71a8d64ed8b"
+                "reference": "89219b432e26c82d2675919e618d4546e06e7648"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/c73fab57c6c6f44a0633e1f20ed9a71a8d64ed8b",
-                "reference": "c73fab57c6c6f44a0633e1f20ed9a71a8d64ed8b",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/89219b432e26c82d2675919e618d4546e06e7648",
+                "reference": "89219b432e26c82d2675919e618d4546e06e7648",
                 "shasum": ""
             },
             "require": {
-                "artisan-build/built-for-cloud-contracts": "^0.2",
+                "artisan-build/built-for-cloud-contracts": "^0.3",
                 "composer/semver": "^3.4",
                 "illuminate/auth": "^13.24",
                 "illuminate/console": "^13.24",
@@ -76,22 +76,22 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.19.0"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.19.2"
             },
-            "time": "2026-09-28T08:22:02+00:00"
+            "time": "2026-09-29T16:42:42+00:00"
         },
         {
             "name": "artisan-build/built-for-cloud-contracts",
-            "version": "v0.2.0",
+            "version": "v0.3.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud-contracts.git",
-                "reference": "8d3238e8d173fb72b42a44d95f30ac403b173a57"
+                "reference": "a15715de86648485b37e754979d486f5c70f3ea1"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud-contracts/zipball/8d3238e8d173fb72b42a44d95f30ac403b173a57",
-                "reference": "8d3238e8d173fb72b42a44d95f30ac403b173a57",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud-contracts/zipball/a15715de86648485b37e754979d486f5c70f3ea1",
+                "reference": "a15715de86648485b37e754979d486f5c70f3ea1",
                 "shasum": ""
             },
             "require": {
@@ -121,9 +121,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud-contracts/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud-contracts/tree/v0.2.0"
+                "source": "https://github.com/artisan-build/built-for-cloud-contracts/tree/v0.3.0"
             },
-            "time": "2026-09-26T15:17:49+00:00"
+            "time": "2026-09-29T12:49:39+00:00"
         },
         {
             "name": "artisan-build/hone-contracts",

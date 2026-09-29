@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Support\AggregateWindow;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
@@ -21,9 +25,12 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('Return total queued job throughput with the top job normalized keys by count.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class QueueThroughputTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
+    use RespectsEffectCeiling;
 
     public function handle(Request $request): Response
     {

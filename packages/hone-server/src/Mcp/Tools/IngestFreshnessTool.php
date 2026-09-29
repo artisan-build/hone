@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceHealth;
 use ArtisanBuild\HoneServer\Mcp\Support\AggregateWindow;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\BoundsRawEventLookback;
@@ -23,10 +27,13 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('List each app with the latest raw event timestamp seen by Hone within a lookback window, plus aggregate freshness and overall maintenance health.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class IngestFreshnessTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
     use BoundsRawEventLookback;
+    use RespectsEffectCeiling;
 
     public function handle(Request $request): Response
     {

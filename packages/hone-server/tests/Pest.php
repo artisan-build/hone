@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RequestEffectCeiling;
 use ArtisanBuild\HoneServer\Tests\TestCase;
 use Carbon\CarbonImmutable;
 use Laravel\Mcp\Server\Testing\TestResponse;
@@ -13,6 +15,10 @@ use ParagonIE\Paseto\Protocol\Version4;
 use ParagonIE\Paseto\Purpose;
 
 uses(TestCase::class)->in(__DIR__);
+
+uses()->beforeEach(function (): void {
+    RequestEffectCeiling::publish(app('request'), Effect::Destructive->value);
+})->in('McpScaffoldTest.php', 'McpIdleCostToolsTest.php', 'McpMetricToolsTest.php');
 
 function honeMcpTestSigningKey(): AsymmetricSecretKey
 {

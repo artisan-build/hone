@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\BoundsActivityTimelineWindow;
 use ArtisanBuild\HoneServer\Models\BackgroundActivityBucket;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
@@ -22,10 +26,13 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('List individual database-touching scheduled tasks and jobs by stable normalized name. Frequency is each activity\'s average run count per minute across the requested inclusive timeline window.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class BackgroundDbActivityTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
     use BoundsActivityTimelineWindow;
+    use RespectsEffectCeiling;
 
     public function handle(Request $request): Response
     {
