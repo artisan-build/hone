@@ -24604,6 +24604,162 @@ namespace Illuminate\Support\Facades {
             }
     }
 
+namespace Laravel\Mcp\Facades {
+    /**
+     * @see Registrar
+     */
+    class Mcp {
+        /**
+         * @param class-string<Server> $serverClass
+         * @static
+         */
+        public static function web($route, $serverClass)
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->web($route, $serverClass);
+        }
+
+        /**
+         * @param class-string<Server> $serverClass
+         * @static
+         */
+        public static function local($handle, $serverClass)
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->local($handle, $serverClass);
+        }
+
+        /**
+         * @param \Closure():  Client  $factory
+         * @static
+         */
+        public static function registerClient($name, $factory)
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->registerClient($name, $factory);
+        }
+
+        /**
+         * @static
+         */
+        public static function client($name)
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->client($name);
+        }
+
+        /**
+         * @param \Closure(string, TokenSet):  mixed|array{0: class-string, 1: string}  $handler
+         * @param array<int, string>|string $middleware
+         * @param array<string, mixed> $clientMetadata
+         * @static
+         */
+        public static function oAuthRoutesFor($client, $handler, $middleware = 'web', $connectUri = null, $callbackUri = null, $clientMetadataUri = null, $clientMetadata = [])
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->oAuthRoutesFor($client, $handler, $middleware, $connectUri, $callbackUri, $clientMetadataUri, $clientMetadata);
+        }
+
+        /**
+         * @static
+         */
+        public static function getLocalServer($handle)
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->getLocalServer($handle);
+        }
+
+        /**
+         * @static
+         */
+        public static function getWebServer($route)
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->getWebServer($route);
+        }
+
+        /**
+         * @return array<string, callable|Route>
+         * @static
+         */
+        public static function servers()
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->servers();
+        }
+
+        /**
+         * @static
+         */
+        public static function oauthRoutes($oauthPrefix = 'oauth')
+        {
+            /** @var \Laravel\Mcp\Server\Registrar $instance */
+            return $instance->oauthRoutes($oauthPrefix);
+        }
+
+        /**
+         * @return array<string, string>
+         * @static
+         */
+        public static function ensureMcpScope()
+        {
+            return \Laravel\Mcp\Server\Registrar::ensureMcpScope();
+        }
+
+        /**
+         * Register a custom macro.
+         *
+         * @param string $name
+         * @param object|callable $macro
+         * @param-closure-this static  $macro
+         * @return void
+         * @static
+         */
+        public static function macro($name, $macro)
+        {
+            \Laravel\Mcp\Server\Registrar::macro($name, $macro);
+        }
+
+        /**
+         * Mix another object into the class.
+         *
+         * @param object $mixin
+         * @param bool $replace
+         * @return void
+         * @throws \ReflectionException
+         * @static
+         */
+        public static function mixin($mixin, $replace = true)
+        {
+            \Laravel\Mcp\Server\Registrar::mixin($mixin, $replace);
+        }
+
+        /**
+         * Checks if macro is registered.
+         *
+         * @param string $name
+         * @return bool
+         * @static
+         */
+        public static function hasMacro($name)
+        {
+            return \Laravel\Mcp\Server\Registrar::hasMacro($name);
+        }
+
+        /**
+         * Flush the existing macros.
+         *
+         * @return void
+         * @static
+         */
+        public static function flushMacros()
+        {
+            \Laravel\Mcp\Server\Registrar::flushMacros();
+        }
+
+            }
+    }
+
 namespace Illuminate\Http {
     /**
      */
@@ -29920,6 +30076,7 @@ namespace  {
     class Validator extends \Illuminate\Support\Facades\Validator {}
     class View extends \Illuminate\Support\Facades\View {}
     class Vite extends \Illuminate\Support\Facades\Vite {}
+    class Mcp extends \Laravel\Mcp\Facades\Mcp {}
 }
 
 
