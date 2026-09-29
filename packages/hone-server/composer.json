@@ -21,7 +21,7 @@
         "illuminate/contracts": "^13.0",
         "illuminate/database": "^13.0",
         "illuminate/support": "^13.0",
-        "laravel/mcp": "^0.7"
+        "laravel/mcp": "^1.0"
     },
     "require-dev": {
         "orchestra/testbench": "^11.0",
