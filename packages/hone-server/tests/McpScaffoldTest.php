@@ -13,16 +13,38 @@ use ArtisanBuild\BuiltForCloud\CredentialKind;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\Http\Middleware\AuthenticateMcp;
 use ArtisanBuild\BuiltForCloud\LifecycleEventType;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\BuiltForCloud\OperatorAbility;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
 use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
+use ArtisanBuild\HoneServer\Mcp\Tools\AwakeSegmentsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\CacheStatsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\CommandStatsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\DeploysTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\EdgeProfileTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\ExceptionsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestDbRoutesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\GuestTrafficClustersTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\IngestFreshnessTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\ListAppsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\LogVolumeByLevelTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\MailVolumeTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\NotificationVolumeTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\QueryMetricTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\QueueThroughputTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\RecordTypesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\RegressionCheckTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\ScheduledTaskHealthTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowJobsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowOutgoingRequestsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowQueriesTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\SlowRequestsTool;
+use ArtisanBuild\HoneServer\Mcp\Tools\TopUsersTool;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -42,6 +64,49 @@ it('loads the framework migrations required for delegated assertions', function 
 
 it('conforms every advertised tool to the delegated MCP contract', function (): void {
     McpDelegatedTools::assertConforms(HoneMcpServer::class);
+});
+
+it('advertises the read effect for the exact registered tool set', function (): void {
+    $expectedTools = [
+        AwakeSegmentsTool::class,
+        BackgroundDbActivityTool::class,
+        CacheStatsTool::class,
+        CommandStatsTool::class,
+        DeploysTool::class,
+        EdgeProfileTool::class,
+        ExceptionsTool::class,
+        GuestDbRoutesTool::class,
+        GuestTrafficClustersTool::class,
+        IngestFreshnessTool::class,
+        ListAppsTool::class,
+        LogVolumeByLevelTool::class,
+        MailVolumeTool::class,
+        NotificationVolumeTool::class,
+        QueryMetricTool::class,
+        QueueThroughputTool::class,
+        RecordTypesTool::class,
+        RegressionCheckTool::class,
+        ScheduledTaskHealthTool::class,
+        SlowJobsTool::class,
+        SlowOutgoingRequestsTool::class,
+        SlowQueriesTool::class,
+        SlowRequestsTool::class,
+        TopUsersTool::class,
+    ];
+    sort($expectedTools);
+
+    $conformance = McpDelegatedTools::discover(HoneMcpServer::class);
+
+    expect($conformance['tools'])->toBe($expectedTools)
+        ->and($conformance['tools'])->toHaveCount(24)
+        ->and($conformance['violations'])->toBe([]);
+
+    foreach ($conformance['tools'] as $toolClass) {
+        $tool = app($toolClass);
+
+        expect(ToolEffect::of($tool)?->value)->toBe(Effect::Read)
+            ->and($tool->toArray()['_meta']['effect'] ?? null)->toBe(Effect::Read->value);
+    }
 });
 
 it('conforms to the package MCP product admission contract', function (): void {

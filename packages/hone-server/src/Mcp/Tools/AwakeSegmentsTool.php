@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Support\AwakeSegmentAnalysis;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\BoundsActivityTimelineWindow;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
@@ -22,9 +25,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('Return compute and database awake segments from minute activity buckets. Every class reports partitioned minutes, which use human > guest > background precedence and sum to the segment duration, plus sustained_minutes, which is each class\'s independent overlapping coverage and does not sum to the duration. Background includes scheduled tasks and jobs.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class AwakeSegmentsTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
     use BoundsActivityTimelineWindow;
 
     public const MAX_IDLE_MINUTES = 1440;

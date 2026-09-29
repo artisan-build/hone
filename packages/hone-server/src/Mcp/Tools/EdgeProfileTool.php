@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Contracts\NameserverResolver;
 use ArtisanBuild\HoneServer\Models\RequestActivityBucket;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
@@ -23,9 +26,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('Report Cloudflare nameserver detection and observed per-route response cacheability facts. Detection uses DNS NS records only, never request headers.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class EdgeProfileTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
 
     public const MAX_ROUTES = 100;
 

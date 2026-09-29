@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Support\GuestTrafficClusterAnalysis;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\BoundsActivityTimelineWindow;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
@@ -22,9 +25,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('Group guest traffic by path, User-Agent, and ASN, with request volume and compute awake minutes attributed after human traffic using the five-minute idle model.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class GuestTrafficClustersTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
     use BoundsActivityTimelineWindow;
 
     public function handle(Request $request): Response

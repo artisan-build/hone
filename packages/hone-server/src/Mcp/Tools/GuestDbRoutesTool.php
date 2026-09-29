@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Mcp\Tools;
 
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\BoundsActivityTimelineWindow;
 use ArtisanBuild\HoneServer\Models\RequestActivityBucket;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
@@ -22,9 +25,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('List guest routes that ran database queries, with hit counts and exact observed response cookie, Cache-Control, and Vary facts.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class GuestDbRoutesTool extends Tool
 {
     use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
     use BoundsActivityTimelineWindow;
 
     public const MAX_ROUTES = 100;
