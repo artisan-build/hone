@@ -42,6 +42,7 @@ abstract class TestCase extends Orchestra
      */
     protected function getEnvironmentSetUp($app): void
     {
+        $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
         $app['config']->set('database.default', 'hone');
         $app['config']->set('built-for-cloud.manifest', [
             'name' => 'Hone',

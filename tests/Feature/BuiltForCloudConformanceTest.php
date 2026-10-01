@@ -166,6 +166,7 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
             'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.personal_credentials|1',
             'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.session_management|1',
             'ArtisanBuild\BuiltForCloud\LandingManifest|built-for-cloud.manifest|1',
+            'ArtisanBuild\BuiltForCloud\Mcp\TwoPhaseConfirmationStore|built-for-cloud.manifest.slug|1',
             'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
         ]),
         'mcp_delegated' => $sorted([
