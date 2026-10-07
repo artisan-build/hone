@@ -35,6 +35,8 @@ it('accepts a valid envelope and dispatches the telemetry batch without writing 
         records: [
             ['t' => 'query', 'sql' => 'select * from users'],
         ],
+        overflowDroppedRecords: 2,
+        failedDeliveryRecords: 3,
     );
 
     $this->actingAsCredential($credential)
@@ -45,7 +47,9 @@ it('accepts a valid envelope and dispatches the telemetry batch without writing 
         return $job->app === 'checkout'
             && $job->deploy === 'abc123'
             && $job->sentAt === '2026-06-09T12:00:00+00:00'
-            && $job->records === [['t' => 'query', 'sql' => 'select * from users']];
+            && $job->records === [['t' => 'query', 'sql' => 'select * from users']]
+            && $job->overflowDroppedRecords === 2
+            && $job->failedDeliveryRecords === 3;
     });
     expect(RawEvent::query()->count())->toBe(0);
 });
@@ -198,6 +202,27 @@ it('processes telemetry batches into raw events', function (): void {
         ->and($events[1]->payload)->toEqual(['t' => 'request', 'method' => 'GET', 'route' => '/', 'duration_ms' => 34, 'ts' => 1781006402000])
         ->and($events[0]->occurred_at)->not->toBeNull()
         ->and($events[1]->occurred_at)->not->toBeNull();
+});
+
+it('accumulates client loss counters per token app and deploy', function (): void {
+    $asnLookup = resolve(AsnLookup::class);
+
+    (new ProcessTelemetryBatch('checkout', 'abc123', now()->toAtomString(), [], 2, 3))->handle($asnLookup);
+    (new ProcessTelemetryBatch('checkout', 'abc123', now()->toAtomString(), [], 5, 7))->handle($asnLookup);
+    (new ProcessTelemetryBatch('checkout', null, now()->toAtomString(), [], 11, 13))->handle($asnLookup);
+
+    $counters = DB::connection('hone')->table('ingest_counters')
+        ->orderByRaw('deploy nulls last')
+        ->get();
+
+    expect($counters)->toHaveCount(2)
+        ->and($counters[0]->app)->toBe('checkout')
+        ->and($counters[0]->deploy)->toBe('abc123')
+        ->and($counters[0]->overflow_dropped_records)->toBe(7)
+        ->and($counters[0]->failed_delivery_records)->toBe(10)
+        ->and($counters[1]->deploy)->toBeNull()
+        ->and($counters[1]->overflow_dropped_records)->toBe(11)
+        ->and($counters[1]->failed_delivery_records)->toBe(13);
 });
 
 it('enriches real Nightwatch request records without changing their opaque payloads', function (): void {

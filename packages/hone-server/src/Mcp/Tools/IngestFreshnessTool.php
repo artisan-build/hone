@@ -24,7 +24,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
-#[Description('List each app with the latest raw event timestamp seen by Hone within a lookback window, plus aggregate freshness and overall maintenance health.')]
+#[Description('List each app with the latest raw event timestamp, cumulative client loss counters by app and deploy, aggregate freshness, and overall maintenance health.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
 #[ToolEffect(Effect::Read)]
@@ -56,9 +56,23 @@ final class IngestFreshnessTool extends Tool
 
         $health = app(MaintenanceHealth::class)->report();
 
+        $lossCounters = DB::connection('hone')->table('ingest_counters')
+            ->select(['app', 'deploy', 'overflow_dropped_records', 'failed_delivery_records'])
+            ->orderBy('app')
+            ->orderBy('deploy')
+            ->get()
+            ->map(fn (object $counter): array => [
+                'app' => (string) $counter->app,
+                'deploy' => $counter->deploy === null ? null : (string) $counter->deploy,
+                'overflow_dropped_records' => (int) $counter->overflow_dropped_records,
+                'failed_delivery_records' => (int) $counter->failed_delivery_records,
+            ])
+            ->all();
+
         return Response::json([
             'window' => ['hours' => $lookback['hours'], 'since' => $lookback['since']->toJSON()],
             'apps' => $apps,
+            'loss_counters' => $lossCounters,
             'aggregate_freshness' => app(AggregateWindow::class)->freshness(null),
             'health' => [
                 'status' => $health['healthy'] ? 'healthy' : 'unhealthy',

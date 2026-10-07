@@ -33,6 +33,8 @@ final class Envelope
      * @param  string|null  $deploy  The deploy identifier — NIGHTWATCH_DEPLOY, typically the commit SHA.
      * @param  string  $sentAt  ISO-8601 timestamp of when the batch was assembled.
      * @param  list<array<string, mixed>>  $records  Opaque Nightwatch records; each carries its own `t` discriminator.
+     * @param  int  $overflowDroppedRecords  Records discarded because a web request exceeded its buffer.
+     * @param  int  $failedDeliveryRecords  Records discarded after a failed delivery attempt.
      * @param  int  $envelopeVersion  The envelope major the sender was built against.
      */
     public function __construct(
@@ -40,29 +42,53 @@ final class Envelope
         public readonly ?string $deploy,
         public readonly string $sentAt,
         public readonly array $records,
+        public readonly int $overflowDroppedRecords = 0,
+        public readonly int $failedDeliveryRecords = 0,
         public readonly int $envelopeVersion = self::VERSION,
     ) {}
 
     /**
      * @param  list<array<string, mixed>>  $records
      */
-    public static function make(string $app, ?string $deploy, string $sentAt, array $records): self
-    {
-        return new self($app, $deploy, $sentAt, array_values($records));
+    public static function make(
+        string $app,
+        ?string $deploy,
+        string $sentAt,
+        array $records,
+        int $overflowDroppedRecords = 0,
+        int $failedDeliveryRecords = 0,
+    ): self {
+        return new self(
+            $app,
+            $deploy,
+            $sentAt,
+            array_values($records),
+            max(0, $overflowDroppedRecords),
+            max(0, $failedDeliveryRecords),
+        );
     }
 
     /**
-     * @return array{envelope_version: int, app: string, deploy: string|null, sent_at: string, records: list<array<string, mixed>>}
+     * @return array{envelope_version: int, app: string, deploy: string|null, sent_at: string, records: list<array<string, mixed>>, losses?: array{overflow_dropped_records: int, failed_delivery_records: int}}
      */
     public function toArray(): array
     {
-        return [
+        $data = [
             'envelope_version' => $this->envelopeVersion,
             'app' => $this->app,
             'deploy' => $this->deploy,
             'sent_at' => $this->sentAt,
             'records' => array_values($this->records),
         ];
+
+        if ($this->overflowDroppedRecords > 0 || $this->failedDeliveryRecords > 0) {
+            $data['losses'] = [
+                'overflow_dropped_records' => $this->overflowDroppedRecords,
+                'failed_delivery_records' => $this->failedDeliveryRecords,
+            ];
+        }
+
+        return $data;
     }
 
     public function toJson(): string
@@ -94,12 +120,15 @@ final class Envelope
         }
 
         $deploy = $data['deploy'] ?? null;
+        $losses = is_array($data['losses'] ?? null) ? $data['losses'] : [];
 
         return new self(
             app: $data['app'],
             deploy: $deploy === null ? null : (string) $deploy,
             sentAt: isset($data['sent_at']) ? (string) $data['sent_at'] : '',
             records: array_values($records),
+            overflowDroppedRecords: max(0, (int) ($losses['overflow_dropped_records'] ?? 0)),
+            failedDeliveryRecords: max(0, (int) ($losses['failed_delivery_records'] ?? 0)),
             envelopeVersion: $version,
         );
     }

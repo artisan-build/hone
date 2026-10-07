@@ -11,11 +11,14 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Laravel\Nightwatch\Contracts\Ingest;
 use Laravel\Nightwatch\Core;
+use Laravel\Nightwatch\Hooks\WorkerLifecycleListener;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 
@@ -82,6 +85,8 @@ function honeClientGlobalMiddleware(): array
 
 function honeIngest(
     int $bufferLimit = 500,
+    float $flushInterval = 60,
+    bool $runningInConsole = false,
     float $connectTimeout = 0.5,
     float $timeout = 0.5,
     ?LoggerInterface $logger = null,
@@ -92,6 +97,8 @@ function honeIngest(
         app: 'checkout',
         deploy: 'abc123',
         bufferLimit: $bufferLimit,
+        flushInterval: $flushInterval,
+        runningInConsole: $runningInConsole,
         connectTimeout: $connectTimeout,
         timeout: $timeout,
         http: app(Factory::class),
@@ -347,21 +354,110 @@ it('fails open even when the logger throws', function (): void {
     expect(true)->toBeTrue();
 });
 
-it('keeps only the most recent records when the buffer exceeds its limit', function (): void {
+it('keeps only the most recent records and reports overflow losses in web context', function (): void {
     Http::fake();
 
-    $ingest = honeIngest(bufferLimit: 3);
+    $logger = new class extends AbstractLogger
+    {
+        public int $warnings = 0;
+
+        /**
+         * @param  array<string, mixed>  $context
+         */
+        public function log($level, string|Stringable $message, array $context = []): void
+        {
+            if ($level === 'warning') {
+                $this->warnings++;
+            }
+        }
+    };
+    $ingest = honeIngest(bufferLimit: 3, logger: $logger);
 
     foreach (range(1, 5) as $index) {
         $ingest->write(['t' => 'query', 'index' => $index]);
     }
 
+    Http::assertNothingSent();
+
     $ingest->digest();
 
     Http::assertSent(function (Request $request): bool {
         return count($request['records']) === 3
-            && array_column($request['records'], 'index') === [3, 4, 5];
+            && array_column($request['records'], 'index') === [3, 4, 5]
+            && $request['losses'] === [
+                'overflow_dropped_records' => 2,
+                'failed_delivery_records' => 0,
+            ];
     });
+
+    expect($logger->warnings)->toBe(1);
+});
+
+it('sends every console record in batches as the buffer fills', function (): void {
+    $batches = [];
+
+    Http::fake(function (Request $request) use (&$batches) {
+        $batches[] = array_column($request['records'], 'index');
+
+        return Http::response([], 202);
+    });
+
+    $ingest = honeIngest(bufferLimit: 3, runningInConsole: true);
+
+    foreach (range(1, 7) as $index) {
+        $ingest->write(['t' => 'query', 'index' => $index]);
+    }
+
+    $ingest->digest();
+
+    expect($batches)->toBe([[1, 2, 3], [4, 5, 6], [7]])
+        ->and(array_merge(...$batches))->toBe(range(1, 7));
+});
+
+it('sends an aged console buffer on the next write', function (): void {
+    Carbon::setTestNow('2026-10-07 12:00:00');
+    Http::fake();
+
+    try {
+        $ingest = honeIngest(bufferLimit: 500, flushInterval: 60, runningInConsole: true);
+        $ingest->write(['t' => 'query', 'index' => 1]);
+
+        Http::assertNothingSent();
+
+        Carbon::setTestNow('2026-10-07 12:01:01');
+        $ingest->write(['t' => 'query', 'index' => 2]);
+
+        Http::assertSent(function (Request $request): bool {
+            return array_column($request['records'], 'index') === [1, 2];
+        });
+    } finally {
+        Carbon::setTestNow();
+    }
+});
+
+it('reports failed post records on the next successful envelope without resending them', function (): void {
+    Http::fakeSequence()
+        ->push([], 500)
+        ->push([], 202)
+        ->push([], 202);
+
+    $ingest = honeIngest();
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->write(['t' => 'query', 'index' => 2]);
+    $ingest->digest();
+    $ingest->write(['t' => 'query', 'index' => 3]);
+    $ingest->digest();
+    $ingest->write(['t' => 'query', 'index' => 4]);
+    $ingest->digest();
+
+    $requests = Http::recorded();
+
+    expect($requests)->toHaveCount(3)
+        ->and(array_column($requests[1][0]['records'], 'index'))->toBe([3])
+        ->and($requests[1][0]['losses'])->toBe([
+            'overflow_dropped_records' => 0,
+            'failed_delivery_records' => 2,
+        ])->and($requests[2][0]->data())->not->toHaveKey('losses');
 });
 
 it('clears the buffer after digest sends', function (): void {
@@ -402,6 +498,25 @@ it('sends once for the end of request digest then flush sequence', function (): 
     Http::assertSent(function (Request $request): bool {
         return count($request['records']) === 1
             && $request['records'][0]['t'] === 'query';
+    });
+});
+
+it('lets the Nightwatch queue lifecycle digest each job without a later flush resending it', function (): void {
+    Http::fake();
+
+    $ingest = honeIngest(runningInConsole: true);
+    $ingest->write(['t' => 'job-attempt', 'name' => 'SendReceipt']);
+
+    $core = (new ReflectionClass(Core::class))->newInstanceWithoutConstructor();
+    $core->ingest = $ingest;
+
+    (new WorkerLifecycleListener($core))(new Looping('redis', 'default'));
+    $ingest->flush();
+    $ingest->digest();
+
+    Http::assertSentCount(1);
+    Http::assertSent(function (Request $request): bool {
+        return $request['records'] === [['t' => 'job-attempt', 'name' => 'SendReceipt']];
     });
 });
 
@@ -447,6 +562,38 @@ it('clamps zero and negative timeouts to a safe positive floor', function (): vo
     expect($sentOptions['connect_timeout'])->toBe(0.05)
         ->and($sentOptions['timeout'])->toBe(0.05);
 });
+
+it('selects console and web timeout budgets from their context-specific config', function (bool $runningInConsole, float $expectedConnectTimeout, float $expectedTimeout): void {
+    $sentOptions = null;
+
+    Http::fake(function (Request $request, array $options) use (&$sentOptions) {
+        $sentOptions = $options;
+
+        return Http::response();
+    });
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.connect_timeout' => 0.5,
+        'hone.timeout' => 0.5,
+        'hone.console_connect_timeout' => 2.0,
+        'hone.console_timeout' => 5.0,
+    ]);
+
+    (new ReflectionProperty(app(), 'isRunningInConsole'))->setValue(app(), $runningInConsole);
+    (new HoneClientServiceProvider(app()))->register();
+
+    $ingest = app(HoneIngest::class);
+    $ingest->write(['t' => 'query']);
+    $ingest->digest();
+
+    expect($sentOptions['connect_timeout'])->toBe($expectedConnectTimeout)
+        ->and($sentOptions['timeout'])->toBe($expectedTimeout);
+})->with([
+    'console' => [true, 2.0, 5.0],
+    'web' => [false, 0.5, 0.5],
+]);
 
 it('implements the nightwatch ingest contract', function (): void {
     expect(honeIngest())->toBeInstanceOf(Ingest::class);

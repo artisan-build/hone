@@ -79,7 +79,35 @@ it('supplies defaults for absent optional keys (older sender, newer parser)', fu
 
     expect($envelope->deploy)->toBeNull()
         ->and($envelope->sentAt)->toBe('')
-        ->and($envelope->records)->toBe([]);
+        ->and($envelope->records)->toBe([])
+        ->and($envelope->overflowDroppedRecords)->toBe(0)
+        ->and($envelope->failedDeliveryRecords)->toBe(0);
+});
+
+it('round-trips optional loss counters without changing the envelope major', function (): void {
+    $envelope = Envelope::make(
+        app: 'checkout',
+        deploy: 'abc1234',
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [['t' => 'query']],
+        overflowDroppedRecords: 3,
+        failedDeliveryRecords: 5,
+    );
+
+    $restored = Envelope::fromArray($envelope->toArray());
+
+    expect($envelope->toArray()['losses'])->toBe([
+        'overflow_dropped_records' => 3,
+        'failed_delivery_records' => 5,
+    ])->and($restored->envelopeVersion)->toBe(Envelope::VERSION)
+        ->and($restored->overflowDroppedRecords)->toBe(3)
+        ->and($restored->failedDeliveryRecords)->toBe(5);
+});
+
+it('omits empty loss counters so old-shape envelopes stay unchanged', function (): void {
+    $envelope = Envelope::make('app', null, '2026-06-09T12:00:00+00:00', []);
+
+    expect($envelope->toArray())->not->toHaveKey('losses');
 });
 
 it('peeks the version without a full parse', function (): void {

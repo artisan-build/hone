@@ -11,6 +11,7 @@ use ArtisanBuild\HoneServer\Normalizer;
 use ArtisanBuild\HoneServer\Support\PublicIp;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -26,10 +27,14 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
         public readonly ?string $deploy,
         public readonly string $sentAt,
         public readonly array $records,
+        public readonly int $overflowDroppedRecords = 0,
+        public readonly int $failedDeliveryRecords = 0,
     ) {}
 
     public function handle(AsnLookup $asnLookup): void
     {
+        $this->persistLossCounters();
+
         foreach ($this->records as $record) {
             if (! is_array($record)) {
                 continue;
@@ -59,6 +64,32 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
                 continue;
             }
         }
+    }
+
+    private function persistLossCounters(): void
+    {
+        if ($this->overflowDroppedRecords <= 0 && $this->failedDeliveryRecords <= 0) {
+            return;
+        }
+
+        $now = now();
+
+        DB::connection('hone')->table('ingest_counters')->upsert(
+            values: [[
+                'app' => $this->app,
+                'deploy' => blank($this->deploy) ? null : $this->deploy,
+                'overflow_dropped_records' => max(0, $this->overflowDroppedRecords),
+                'failed_delivery_records' => max(0, $this->failedDeliveryRecords),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]],
+            uniqueBy: ['app', 'deploy'],
+            update: [
+                'overflow_dropped_records' => DB::raw('ingest_counters.overflow_dropped_records + excluded.overflow_dropped_records'),
+                'failed_delivery_records' => DB::raw('ingest_counters.failed_delivery_records + excluded.failed_delivery_records'),
+                'updated_at',
+            ],
+        );
     }
 
     /**

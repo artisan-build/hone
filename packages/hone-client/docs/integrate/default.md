@@ -29,9 +29,12 @@ Set both `HONE_URL` and `HONE_TOKEN` to activate the Nightwatch transport rebind
 | `HONE_APP` | Source application identifier written into every envelope. The current Hone receiver attributes stored events to the app ID resolved from `HONE_TOKEN`. | Set to a stable source identifier. Falls back to `APP_NAME`, then `laravel`. |
 | `APP_NAME` | Fallback source application identifier when `HONE_APP` is absent. | Existing Laravel application setting; fallback is `laravel`. |
 | `NIGHTWATCH_DEPLOY` | Optional deploy identifier written into every envelope for release comparison. | Set at deploy time, normally to the deployed commit SHA. Defaults to `null`. |
-| `HONE_BUFFER` | Maximum number of recent records held in memory until digest. | `500`. Overflow discards the oldest records. |
-| `HONE_CONNECT_TIMEOUT` | HTTP connection timeout in seconds. | `0.5`; values below `0.05` are clamped to `0.05`. |
-| `HONE_TIMEOUT` | Total HTTP request timeout in seconds. | `0.5`; values below `0.05` are clamped to `0.05`. |
+| `HONE_BUFFER` | Maximum records held in memory. Console processes send when this limit is reached; web requests discard and count the oldest records on overflow. | `500`. |
+| `HONE_FLUSH_INTERVAL` | Maximum age in seconds of the oldest console record before the next write sends the buffer. No timer or signal is installed. | `60`. |
+| `HONE_CONNECT_TIMEOUT` | Web HTTP connection timeout in seconds and fallback for the console timeout when explicitly set. | `0.5`; values below `0.05` are clamped to `0.05`. |
+| `HONE_TIMEOUT` | Web total HTTP request timeout in seconds and fallback for the console timeout when explicitly set. | `0.5`; values below `0.05` are clamped to `0.05`. |
+| `HONE_CONSOLE_CONNECT_TIMEOUT` | Console HTTP connection timeout in seconds. | `2.0`, or explicit `HONE_CONNECT_TIMEOUT` when set. |
+| `HONE_CONSOLE_TIMEOUT` | Console total HTTP request timeout in seconds. | `5.0`, or explicit `HONE_TIMEOUT` when set. |
 | `NIGHTWATCH_ENABLED` | Enables Nightwatch collection. The installer preserves a truthy value or writes `true`. | Set to `true` unless the application intentionally disables telemetry. |
 
 Use HTTPS. The client only warns for a non-HTTPS `HONE_URL`; it does not refuse to send the bearer token.
@@ -63,11 +66,11 @@ Do not add Hone calls to application code. Nightwatch instruments the applicatio
 
 | Method | Request | Effect and response |
 | --- | --- | --- |
-| `write(array $record)` | One opaque Nightwatch record. | Buffers the record and returns nothing. If the buffer is over `HONE_BUFFER`, drops the oldest record without sending. |
+| `write(array $record)` | One opaque Nightwatch record. | Buffers the record and returns nothing. Console processes send full buffers and aged buffers on the next write. Web requests count and drop the oldest record on overflow without sending mid-request. |
 | `writeNow(array $record)` | One opaque Nightwatch record. | Attempts one immediate POST without clearing buffered records; returns nothing and suppresses transport errors. |
 | `ping()` | No input. | No-op; returns nothing. |
-| `shouldDigest(bool $bool = true)` | Compatibility flag. | Delegates to `shouldDigestWhenBufferIsFull`; returns nothing. It does not make a full buffer send mid-request. |
-| `shouldDigestWhenBufferIsFull(bool $bool = true)` | Compatibility flag. | Stores the flag for contract compatibility; returns nothing. It does not make a full buffer send mid-request. |
+| `shouldDigest(bool $bool = true)` | Compatibility flag. | Delegates to `shouldDigestWhenBufferIsFull`; returns nothing. Web requests still do not send mid-request. |
+| `shouldDigestWhenBufferIsFull(bool $bool = true)` | Full-buffer flag controlled by Nightwatch sampling. | Enables full-buffer sends in console processes; returns nothing. Web requests still do not send mid-request. |
 | `digest()` | No input. | Attempts one POST of the buffered records, then clears them whether the POST succeeds or fails; returns nothing. |
 | `flush()` | No input. | Clears buffered records without sending; returns nothing. |
 
@@ -90,9 +93,15 @@ An ingest POST uses bearer authentication and this JSON request shape:
   "sent_at": "2026-09-04T12:00:00+00:00",
   "records": [
     {"t": "query", "sql": "select 1"}
-  ]
+  ],
+  "losses": {
+    "overflow_dropped_records": 2,
+    "failed_delivery_records": 3
+  }
 }
 ```
+
+`losses` is optional and appears only after the client has records to report. It is cleared after the next successful POST.
 
 The client does not expose the HTTP response shape. It checks for a successful response, discards the response, suppresses any exception, and returns `void`.
 
@@ -107,8 +116,8 @@ The client does not expose the HTTP response shape. It checks for a successful r
 - The Hone client captures nothing itself. Once installed and enabled, Nightwatch captures its supported Laravel requests, queries, jobs, exceptions, logs, and other records automatically; Hone buffers and forwards them. No Hone call-site changes are required.
 - Shipping is a bounded synchronous HTTP POST when Nightwatch digests at request or command termination, after an HTTP response has been sent. There is no client daemon, disk buffer, webhook, polling flow, or completion result.
 - The Hone deployment processes accepted telemetry asynchronously. Query receipt through Hone after its queue worker handles the batch; do not wait for a client callback.
-- One digest makes one HTTP attempt. There are no retries. Connection failures, timeouts, non-success responses, identity lookup failures, and logger failures never fail the host application. Failed records are dropped.
-- The in-memory buffer defaults to the most recent 500 records. A full buffer drops older records rather than posting during the request. A process exit before digest loses the buffer.
+- One digest makes one HTTP attempt. There are no retries. Connection failures, timeouts, non-success responses, identity lookup failures, and logger failures never fail the host application. Failed record counts ride on the next successful POST from that process.
+- The in-memory buffer defaults to 500 records. Web requests drop and count older records rather than posting before termination. Console processes, including queue workers, send full buffers and send aged buffers on the next write. A process exit can still lose a buffer that has not reached either condition.
 - Sampling belongs to Nightwatch configuration. The Hone client does not sample.
 - Redaction must happen in Nightwatch before transmission. The Hone client adds no redaction layer.
 - `HONE_URL` and `HONE_TOKEN` must both be non-empty. Removing either disables the rebind; setting only one also emits a warning.
@@ -132,6 +141,14 @@ After the command terminates and the Hone queue worker processes the batch, call
       "app": "checkout",
       "latest_occurred_at": "2026-09-04T12:00:00.000000Z",
       "latest_ingested_at": "2026-09-04T12:00:01.000000Z"
+    }
+  ],
+  "loss_counters": [
+    {
+      "app": "checkout",
+      "deploy": "abc123",
+      "overflow_dropped_records": 2,
+      "failed_delivery_records": 3
     }
   ]
 }
