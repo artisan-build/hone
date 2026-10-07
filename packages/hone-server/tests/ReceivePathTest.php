@@ -204,6 +204,33 @@ it('processes telemetry batches into raw events', function (): void {
         ->and($events[1]->occurred_at)->not->toBeNull();
 });
 
+it('processes telemetry jobs serialized before loss counters were added', function (): void {
+    $class = ProcessTelemetryBatch::class;
+    $properties = [
+        'connection' => null,
+        'app' => 'checkout',
+        'deploy' => 'legacy-deploy',
+        'sentAt' => '2026-06-09T12:00:00+00:00',
+        'records' => [['t' => 'query', 'sql' => 'select 1']],
+    ];
+    $serialized = 'O:'.strlen($class).':"'.$class.'":'.count($properties).':{';
+
+    foreach ($properties as $property => $value) {
+        $serialized .= serialize($property).serialize($value);
+    }
+
+    $serialized .= '}';
+
+    $job = unserialize($serialized, ['allowed_classes' => [$class]]);
+
+    expect($job)->toBeInstanceOf(ProcessTelemetryBatch::class);
+
+    $job->handle(resolve(AsnLookup::class));
+
+    expect(RawEvent::query()->sole()->payload)->toBe(['t' => 'query', 'sql' => 'select 1'])
+        ->and(DB::connection('hone')->table('ingest_counters')->count())->toBe(0);
+});
+
 it('accumulates client loss counters per token app and deploy', function (): void {
     $asnLookup = resolve(AsnLookup::class);
 

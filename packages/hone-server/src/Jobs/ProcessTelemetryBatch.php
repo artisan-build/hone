@@ -68,7 +68,10 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
 
     private function persistLossCounters(): void
     {
-        if ($this->overflowDroppedRecords <= 0 && $this->failedDeliveryRecords <= 0) {
+        $overflowDroppedRecords = $this->overflowDroppedRecords ?? 0;
+        $failedDeliveryRecords = $this->failedDeliveryRecords ?? 0;
+
+        if ($overflowDroppedRecords <= 0 && $failedDeliveryRecords <= 0) {
             return;
         }
 
@@ -78,8 +81,8 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
             values: [[
                 'app' => $this->app,
                 'deploy' => blank($this->deploy) ? null : $this->deploy,
-                'overflow_dropped_records' => max(0, $this->overflowDroppedRecords),
-                'failed_delivery_records' => max(0, $this->failedDeliveryRecords),
+                'overflow_dropped_records' => max(0, $overflowDroppedRecords),
+                'failed_delivery_records' => max(0, $failedDeliveryRecords),
                 'created_at' => $now,
                 'updated_at' => $now,
             ]],
