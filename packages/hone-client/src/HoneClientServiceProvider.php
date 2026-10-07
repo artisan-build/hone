@@ -30,14 +30,18 @@ final class HoneClientServiceProvider extends ServiceProvider
         }
 
         $this->app->bind(HoneIngest::class, function (Application $app): HoneIngest {
+            $runningInConsole = $app->runningInConsole();
+
             return new HoneIngest(
                 url: (string) config('hone.url'),
                 token: (string) config('hone.token'),
                 app: (string) config('hone.app'),
                 deploy: config('hone.deploy') === null ? null : (string) config('hone.deploy'),
                 bufferLimit: (int) config('hone.buffer'),
-                connectTimeout: (float) config('hone.connect_timeout'),
-                timeout: (float) config('hone.timeout'),
+                flushInterval: (float) config('hone.flush_interval'),
+                runningInConsole: $runningInConsole,
+                connectTimeout: (float) config($runningInConsole ? 'hone.console_connect_timeout' : 'hone.connect_timeout'),
+                timeout: (float) config($runningInConsole ? 'hone.console_timeout' : 'hone.timeout'),
                 http: $app->make(Factory::class),
                 logger: $app->make(LoggerInterface::class),
             );

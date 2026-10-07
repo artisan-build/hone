@@ -21,9 +21,9 @@ Hone app.
   with one that batches records and POSTs them over HTTPS to your Hone server. No fork of
   `laravel/nightwatch`, no daemon, no on-disk buffer.
 - **Batches and POSTs** a versioned envelope to `HONE_URL`, authenticating with `HONE_TOKEN`.
-- **Fails open.** If the endpoint is unreachable, records are dropped after a bounded
-  in-memory buffer. Your app must never block, slow, or error because telemetry shipping
-  failed. The POST happens during request termination — after the response is sent.
+- **Fails open.** If the endpoint is unreachable, records are dropped and counted without
+  failing the host app. Web requests keep network work in request termination; long-running
+  console processes also send full or aged buffers while they run.
 - **Octane-safe** — no per-request static state leakage.
 
 It does **not** do sampling (that lives in your Nightwatch config) and it adds **no
@@ -75,6 +75,10 @@ NIGHTWATCH_ENABLED=true                       # Nightwatch collects when enabled
 HONE_URL=https://hone.<client>.example/ingest
 HONE_TOKEN=<issued by your Hone app's registry>
 NIGHTWATCH_DEPLOY=<commit sha, set at deploy>
+# Optional tuning: console buffers flush every 60 seconds with 2s connect / 5s total timeouts.
+# HONE_FLUSH_INTERVAL=60
+# HONE_CONSOLE_CONNECT_TIMEOUT=2
+# HONE_CONSOLE_TIMEOUT=5
 ```
 
 You do **not** need a `NIGHTWATCH_TOKEN`. Nightwatch's collection is gated by

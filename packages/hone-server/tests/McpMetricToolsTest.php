@@ -23,6 +23,7 @@ use ArtisanBuild\HoneServer\Mcp\Tools\TopUsersTool;
 use ArtisanBuild\HoneServer\Models\Aggregate;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 function seedAggregateBucket(
     string $app,
@@ -449,4 +450,42 @@ it('reports healthy on the ingest freshness surface when ingest and aggregates a
 
     expect($payload['health']['status'])->toBe('healthy')
         ->and($payload['aggregate_freshness']['age_days'])->toBe(0);
+});
+
+it('returns cumulative client loss counters per app and deploy through ingest freshness', function (): void {
+    DB::connection('hone')->table('ingest_counters')->insert([
+        [
+            'app' => 'billing',
+            'deploy' => null,
+            'overflow_dropped_records' => 2,
+            'failed_delivery_records' => 3,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ],
+        [
+            'app' => 'checkout',
+            'deploy' => 'abc123',
+            'overflow_dropped_records' => 5,
+            'failed_delivery_records' => 7,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ],
+    ]);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(IngestFreshnessTool::class)->assertOk());
+
+    expect($payload['loss_counters'])->toBe([
+        [
+            'app' => 'billing',
+            'deploy' => null,
+            'overflow_dropped_records' => 2,
+            'failed_delivery_records' => 3,
+        ],
+        [
+            'app' => 'checkout',
+            'deploy' => 'abc123',
+            'overflow_dropped_records' => 5,
+            'failed_delivery_records' => 7,
+        ],
+    ]);
 });

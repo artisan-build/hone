@@ -15,6 +15,7 @@ it('creates the storage tables with jsonb payload columns', function (): void {
     expect(Schema::connection('hone')->hasTable('raw_events'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('aggregates'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('samples'))->toBeTrue()
+        ->and(Schema::connection('hone')->hasTable('ingest_counters'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('activity_buckets'))->toBeTrue()
         ->and(Schema::connection('hone')->hasTable('background_activity_buckets'))->toBeTrue();
 

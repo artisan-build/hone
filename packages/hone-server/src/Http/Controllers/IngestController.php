@@ -69,6 +69,8 @@ final class IngestController
             deploy: $envelope->deploy,
             sentAt: $envelope->sentAt,
             records: $envelope->records,
+            overflowDroppedRecords: $envelope->overflowDroppedRecords,
+            failedDeliveryRecords: $envelope->failedDeliveryRecords,
         );
 
         $queueConnection = config('hone-server.queue');

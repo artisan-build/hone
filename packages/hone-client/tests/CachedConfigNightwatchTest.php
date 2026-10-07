@@ -16,6 +16,9 @@ it('keeps own-account nightwatch enabled from cached config and reaches its agen
         ->and(Env::getRepository()->has('NIGHTWATCH_TOKEN'))->toBeFalse()
         ->and(config('hone.url'))->toBeNull()
         ->and(config('hone.token'))->toBeNull()
+        ->and(config('hone.flush_interval'))->toBe(60.0)
+        ->and(config('hone.console_connect_timeout'))->toBe(2.0)
+        ->and(config('hone.console_timeout'))->toBe(5.0)
         ->and(config('nightwatch.token'))->toBe('nightwatch-token');
 
     Route::get('/', fn () => response('ok'));

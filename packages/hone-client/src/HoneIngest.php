@@ -21,7 +21,15 @@ final class HoneIngest implements Ingest
      */
     private array $buffer = [];
 
+    private ?Carbon $oldestBufferedAt = null;
+
     private bool $shouldDigestWhenBufferIsFull = true;
+
+    private int $overflowDroppedRecords = 0;
+
+    private int $failedDeliveryRecords = 0;
+
+    private bool $overflowWarningLogged = false;
 
     private readonly float $connectTimeout;
 
@@ -33,6 +41,8 @@ final class HoneIngest implements Ingest
         private readonly string $app,
         private readonly ?string $deploy,
         private readonly int $bufferLimit,
+        private readonly float $flushInterval,
+        private readonly bool $runningInConsole,
         float $connectTimeout,
         float $timeout,
         private readonly Factory $http,
@@ -47,11 +57,21 @@ final class HoneIngest implements Ingest
      */
     public function write(array $record): void
     {
+        $this->oldestBufferedAt ??= Carbon::now();
         $this->buffer[] = $record;
 
-        // Hone intentionally drops on overflow instead of posting mid-request.
+        if ($this->runningInConsole
+            && (($this->shouldDigestWhenBufferIsFull && count($this->buffer) >= max(1, $this->bufferLimit))
+                || $this->flushIntervalElapsed())) {
+            $this->digest();
+
+            return;
+        }
+
         while (count($this->buffer) > max(0, $this->bufferLimit)) {
             array_shift($this->buffer);
+            $this->overflowDroppedRecords++;
+            $this->warnAboutOverflow();
         }
     }
 
@@ -75,7 +95,6 @@ final class HoneIngest implements Ingest
 
     public function shouldDigestWhenBufferIsFull(bool $bool = true): void
     {
-        // Stored for contract compatibility; Hone never digests mid-request on full buffers.
         $this->shouldDigestWhenBufferIsFull = $bool;
     }
 
@@ -87,6 +106,7 @@ final class HoneIngest implements Ingest
     public function flush(): void
     {
         $this->buffer = [];
+        $this->oldestBufferedAt = null;
     }
 
     /**
@@ -104,6 +124,8 @@ final class HoneIngest implements Ingest
                 deploy: $this->deploy,
                 sentAt: Carbon::now()->toIso8601String(),
                 records: $records,
+                overflowDroppedRecords: $this->overflowDroppedRecords,
+                failedDeliveryRecords: $this->failedDeliveryRecords,
             )->toArray();
 
             $this->pendingRequest()
@@ -112,12 +134,39 @@ final class HoneIngest implements Ingest
                 ->timeout($this->timeout)
                 ->post($this->url, $envelope)
                 ->throw();
+
+            $this->overflowDroppedRecords = 0;
+            $this->failedDeliveryRecords = 0;
         } catch (Throwable $e) {
+            $this->failedDeliveryRecords += count($records);
             $this->debug('Hone ingest failed; dropping buffered records.', $e);
         } finally {
             if ($clearBuffer) {
                 $this->buffer = [];
+                $this->oldestBufferedAt = null;
             }
+        }
+    }
+
+    private function flushIntervalElapsed(): bool
+    {
+        return $this->oldestBufferedAt !== null
+            && $this->flushInterval >= 0
+            && $this->oldestBufferedAt->copy()->addSeconds($this->flushInterval)->lte(Carbon::now());
+    }
+
+    private function warnAboutOverflow(): void
+    {
+        if ($this->overflowWarningLogged) {
+            return;
+        }
+
+        $this->overflowWarningLogged = true;
+
+        try {
+            $this->logger->warning('Hone ingest buffer overflowed; dropping the oldest telemetry records.');
+        } catch (Throwable) {
+            // Fail open even if the host application's logger is unavailable.
         }
     }
 
