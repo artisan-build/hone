@@ -127,11 +127,11 @@
         },
         {
             "name": "artisan-build/hone-contracts",
-            "version": "1.6.0",
+            "version": "1.6.1",
             "dist": {
                 "type": "path",
                 "url": "packages/hone-contracts",
-                "reference": "e85c505ba6b96e31efe968f571ead812af42788d"
+                "reference": "214a32ab8bb4e92cfb1dc8c96accbadec8f0dbf2"
             },
             "require": {
                 "php": "^8.2"
@@ -180,11 +180,11 @@
         },
         {
             "name": "artisan-build/hone-server",
-            "version": "1.6.0",
+            "version": "1.6.1",
             "dist": {
                 "type": "path",
                 "url": "packages/hone-server",
-                "reference": "c698609cff15c6fa240b33e049efbdbc0595551f"
+                "reference": "f0926ee366ae7c5d53186b943395e37528de0911"
             },
             "require": {
                 "artisan-build/built-for-cloud": "^0.19.8",
