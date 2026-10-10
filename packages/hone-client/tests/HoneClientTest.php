@@ -54,17 +54,10 @@ function honeClientLines(string $contents, string $key): array
     ));
 }
 
-function bindFakeNightwatchCore(mixed $ingest = null): object
+function bindFakeNightwatchCore(?Ingest $ingest = null): Core
 {
-    $core = new class($ingest)
-    {
-        public mixed $ingest;
-
-        public function __construct(mixed $ingest)
-        {
-            $this->ingest = $ingest;
-        }
-    };
+    $core = (new ReflectionClass(Core::class))->newInstanceWithoutConstructor();
+    $core->ingest = $ingest ?? Mockery::mock(Ingest::class);
 
     app()->instance(Core::class, $core);
 
@@ -103,6 +96,7 @@ function honeIngest(
         timeout: $timeout,
         http: app(Factory::class),
         logger: $logger ?? app(LoggerInterface::class),
+        nightwatch: (new ReflectionClass(Core::class))->newInstanceWithoutConstructor(),
     );
 }
 
@@ -122,7 +116,7 @@ it('stays inert when neither url nor token are configured', function (): void {
     config()->set('hone.url', null);
     config()->set('hone.token', null);
 
-    $original = new stdClass;
+    $original = Mockery::mock(Ingest::class);
     bindFakeNightwatchCore($original);
 
     runHoneClientBootedRebind();
@@ -184,7 +178,7 @@ it('stays inert and logs a warning when only url is configured', function (): vo
     config()->set('hone.url', 'https://hone.test/ingest');
     config()->set('hone.token', null);
 
-    $original = new stdClass;
+    $original = Mockery::mock(Ingest::class);
     bindFakeNightwatchCore($original);
 
     runHoneClientBootedRebind();
@@ -204,7 +198,7 @@ it('stays inert and logs a warning when only token is configured', function (): 
     config()->set('hone.url', null);
     config()->set('hone.token', 'secret-token');
 
-    $original = new stdClass;
+    $original = Mockery::mock(Ingest::class);
     bindFakeNightwatchCore($original);
 
     runHoneClientBootedRebind();
@@ -582,6 +576,7 @@ it('selects console and web timeout budgets from their context-specific config',
     ]);
 
     (new ReflectionProperty(app(), 'isRunningInConsole'))->setValue(app(), $runningInConsole);
+    bindFakeNightwatchCore();
     (new HoneClientServiceProvider(app()))->register();
 
     $ingest = app(HoneIngest::class);

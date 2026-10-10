@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
 use Laravel\Nightwatch\Contracts\Ingest;
+use Laravel\Nightwatch\Core;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -47,6 +48,7 @@ final class HoneIngest implements Ingest
         float $timeout,
         private readonly Factory $http,
         private readonly LoggerInterface $logger,
+        private readonly Core $nightwatch,
     ) {
         $this->connectTimeout = max(self::MINIMUM_TIMEOUT, $connectTimeout);
         $this->timeout = max(self::MINIMUM_TIMEOUT, $timeout);
@@ -128,12 +130,12 @@ final class HoneIngest implements Ingest
                 failedDeliveryRecords: $this->failedDeliveryRecords,
             )->toArray();
 
-            $this->pendingRequest()
+            $this->nightwatch->ignore(fn () => $this->pendingRequest()
                 ->withToken($this->token)
                 ->connectTimeout($this->connectTimeout)
                 ->timeout($this->timeout)
                 ->post($this->url, $envelope)
-                ->throw();
+                ->throw());
 
             $this->overflowDroppedRecords = 0;
             $this->failedDeliveryRecords = 0;

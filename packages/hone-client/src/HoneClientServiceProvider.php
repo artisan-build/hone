@@ -44,6 +44,7 @@ final class HoneClientServiceProvider extends ServiceProvider
                 timeout: (float) config($runningInConsole ? 'hone.console_timeout' : 'hone.timeout'),
                 http: $app->make(Factory::class),
                 logger: $app->make(LoggerInterface::class),
+                nightwatch: $app->make(Core::class),
             );
         });
     }
