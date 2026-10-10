@@ -11,3 +11,4 @@ uses(TestCase::class)->in('HoneClientTest.php');
 uses(CachedConfigNightwatchTestCase::class)->in('CachedConfigNightwatchTest.php');
 uses(InertByDefaultTestCase::class)->in('InertByDefaultTest.php');
 uses(ResponseContextTestCase::class)->in('ResponseContextTest.php');
+uses(ResponseContextTestCase::class)->in('SelfTelemetryTest.php');
