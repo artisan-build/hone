@@ -183,7 +183,7 @@ it('processes telemetry batches into raw events', function (): void {
         deploy: 'abc123',
         sentAt: '2026-06-09T12:00:00+00:00',
         records: [
-            ['t' => 'query', 'sql' => 'select * from users where id = ?', 'duration_ms' => 12, 'timestamp' => '2026-06-09T12:00:01+00:00'],
+            ['t' => 'query', 'sql' => 'select * from users where id = ?', 'duration' => 12_000, 'timestamp' => '2026-06-09T12:00:01+00:00'],
             ['t' => 'request', 'method' => 'GET', 'route' => '/', 'duration_ms' => 34, 'ts' => 1781006402000],
         ],
     );
@@ -198,8 +198,9 @@ it('processes telemetry batches into raw events', function (): void {
         ->and($events->pluck('deploy')->unique()->values()->all())->toBe(['abc123'])
         ->and($events[0]->normalized_key)->toBe('select * from users where id = ?')
         ->and($events[1]->normalized_key)->toBe('GET /')
-        ->and($events[0]->payload)->toEqual(['t' => 'query', 'sql' => 'select * from users where id = ?', 'duration_ms' => 12, 'timestamp' => '2026-06-09T12:00:01+00:00'])
+        ->and($events[0]->payload)->toEqual(['t' => 'query', 'sql' => 'select * from users where id = ?', 'duration' => 12_000, 'timestamp' => '2026-06-09T12:00:01+00:00'])
         ->and($events[1]->payload)->toEqual(['t' => 'request', 'method' => 'GET', 'route' => '/', 'duration_ms' => 34, 'ts' => 1781006402000])
+        ->and($events->pluck('duration_ms')->all())->toBe([12.0, 34.0])
         ->and($events[0]->occurred_at)->not->toBeNull()
         ->and($events[1]->occurred_at)->not->toBeNull();
 });
