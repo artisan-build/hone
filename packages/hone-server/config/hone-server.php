@@ -42,6 +42,14 @@ return [
         // Timeline buckets outlive raw telemetry so annual activity comparisons remain available.
         'timeline_days' => (int) env('HONE_RETENTION_TIMELINE_DAYS', 400),
     ],
+    /*
+     | Production measured 83,056 events for one hour at 1s p50, 5s p99.99, and 63s
+     | maximum created_at - occurred_at lag, with none arriving after the hour closed.
+     | The maximum is not bounded by Hone, so keep a small configurable safety lag.
+     */
+    'rollup' => [
+        'late_arrival_minutes' => (int) env('HONE_ROLLUP_LATE_ARRIVAL_MINUTES', 10),
+    ],
     'maintenance' => [
         // Releases the hone:maintain overlap lock if a run dies without clearing it.
         'overlap_lock_minutes' => (int) env('HONE_MAINTENANCE_OVERLAP_LOCK_MINUTES', 120),

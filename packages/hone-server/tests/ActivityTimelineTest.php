@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
-    Carbon::setTestNow('2026-06-09 13:00:00+00');
+    Carbon::setTestNow('2026-06-09 13:10:00+00');
 });
 
 afterEach(function (): void {
@@ -70,7 +70,7 @@ it('rolls execution activity into isolated UTC minute buckets idempotently', fun
 });
 
 it('places activity one second either side of an exact five minute boundary', function (): void {
-    Carbon::setTestNow('2026-06-09 10:00:00+00');
+    Carbon::setTestNow('2026-06-09 10:10:00+00');
 
     rawActivity('checkout', '2026-06-09 09:04:59+00', 'human', true);
     rawActivity('checkout', '2026-06-09 09:05:00+00', 'human', true);

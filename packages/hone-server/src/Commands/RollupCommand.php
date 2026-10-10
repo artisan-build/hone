@@ -23,7 +23,8 @@ final class RollupCommand extends SystemAuthorityCommand
         MaintenanceMarkers $markers,
     ): int {
         $startedAt = CarbonImmutable::now('UTC');
-        $closedUntil = $startedAt->startOfHour();
+        $lateArrivalMinutes = max(0, (int) config('hone-server.rollup.late_arrival_minutes', 10));
+        $closedUntil = $startedAt->subMinutes($lateArrivalMinutes)->startOfHour();
         $rollupFrom = $this->rangeStart($markers->rollupWatermark(), $closedUntil);
         $activityFrom = $this->rangeStart($markers->activityRollupWatermark(), $closedUntil);
         $mergeableFrom = $this->mergeableFrom($markers, $rollupFrom);
@@ -90,7 +91,7 @@ final class RollupCommand extends SystemAuthorityCommand
 
         return $oldestRawEvent === null
             ? $closedUntil
-            : CarbonImmutable::parse((string) $oldestRawEvent)->utc();
+            : CarbonImmutable::parse((string) $oldestRawEvent)->utc()->min($closedUntil);
     }
 
     private function mergeableFrom(MaintenanceMarkers $markers, CarbonImmutable $rollupFrom): CarbonImmutable

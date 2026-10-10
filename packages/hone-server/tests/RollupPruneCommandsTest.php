@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
-    // The rollup reads a trailing window ending now, so pin the clock to the fixture day.
-    Carbon::setTestNow('2026-06-09 13:00:00+00');
+    // Ten minutes after the boundary closes the fixture's 12:00 UTC hour.
+    Carbon::setTestNow('2026-06-09 13:10:00+00');
 });
 
 afterEach(function (): void {
@@ -263,7 +263,7 @@ it('prunes expired raw events samples and aggregates while keeping in-window row
 });
 
 it('keeps aggregates created before pruning expired raw events', function (): void {
-    Carbon::setTestNow('2026-06-09 12:00:00+00');
+    Carbon::setTestNow('2026-06-09 12:10:00+00');
     config()->set('hone-server.retention.raw_hours', 1);
 
     RawEvent::factory()->create([
@@ -271,7 +271,7 @@ it('keeps aggregates created before pruning expired raw events', function (): vo
         'record_type' => 'query',
         'normalized_key' => 'select-users-by-id',
         'deploy' => 'abc123',
-        'occurred_at' => now()->subMinute(),
+        'occurred_at' => now()->subMinutes(11),
         'payload' => ['duration_ms' => 10],
     ]);
 
@@ -385,6 +385,53 @@ it('never issues a rollup statement carrying more than 65,535 bindings', functio
     expect($bindingCounts)->not->toBeEmpty()
         ->and(max($bindingCounts))->toBeLessThanOrEqual(65535)
         ->and(Aggregate::query()->count())->toBe(6600);
+});
+
+it('includes an event inserted after a run while its occurred-at hour is inside the lag', function (): void {
+    expect(config('hone-server.rollup.late_arrival_minutes'))->toBe(10);
+
+    Carbon::setTestNow('2026-06-09 13:05:00+00');
+    Artisan::call('hone:rollup');
+
+    expect(app(MaintenanceMarkers::class)->rollupWatermark()?->toIso8601ZuluString())
+        ->toBe('2026-06-09T12:00:00Z');
+
+    RawEvent::factory()->create([
+        'app' => 'checkout',
+        'normalized_key' => 'late-inside-lag',
+        'deploy' => null,
+        'occurred_at' => Carbon::parse('2026-06-09 12:59:59+00'),
+    ]);
+
+    Carbon::setTestNow('2026-06-09 13:10:00+00');
+    Artisan::call('hone:rollup');
+
+    expect(Aggregate::query()->where('normalized_key', 'late-inside-lag')->where('metric', 'count')->value('value'))->toBe(1.0)
+        ->and(app(MaintenanceMarkers::class)->rollupWatermark()?->toIso8601ZuluString())
+        ->toBe('2026-06-09T13:00:00Z');
+});
+
+it('closes the hour only after the configured lag has fully passed', function (): void {
+    RawEvent::factory()->create([
+        'app' => 'checkout',
+        'normalized_key' => 'lag-boundary',
+        'deploy' => null,
+        'occurred_at' => Carbon::parse('2026-06-09 12:59:59+00'),
+    ]);
+
+    Carbon::setTestNow('2026-06-09 13:09:59+00');
+    Artisan::call('hone:rollup');
+
+    expect(Aggregate::query()->where('normalized_key', 'lag-boundary')->exists())->toBeFalse()
+        ->and(app(MaintenanceMarkers::class)->rollupWatermark()?->toIso8601ZuluString())
+        ->toBe('2026-06-09T12:00:00Z');
+
+    Carbon::setTestNow('2026-06-09 13:10:00+00');
+    Artisan::call('hone:rollup');
+
+    expect(Aggregate::query()->where('normalized_key', 'lag-boundary')->where('metric', 'count')->value('value'))->toBe(1.0)
+        ->and(app(MaintenanceMarkers::class)->rollupWatermark()?->toIso8601ZuluString())
+        ->toBe('2026-06-09T13:00:00Z');
 });
 
 it('reads only closed hours from the watermarks and leaves older aggregates untouched', function (): void {
@@ -692,7 +739,7 @@ it('reports a thrown rollup with its exception class, still prunes, and exits no
     expect(RawEvent::query()->whereKey($expired->getKey())->exists())->toBeFalse()
         ->and($markers->get(MaintenanceMarkers::MAINTAIN_LAST_SUCCESS))->toBeNull()
         ->and($markers->get(MaintenanceMarkers::MAINTAIN_LAST_FAILURE_REASON))->toContain('LogicException')
-        ->and($markers->timestamp(MaintenanceMarkers::MAINTAIN_LAST_FAILURE)?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z');
+        ->and($markers->timestamp(MaintenanceMarkers::MAINTAIN_LAST_FAILURE)?->toIso8601ZuluString())->toBe('2026-06-09T13:10:00Z');
 });
 
 it('reports a rollup that returns a failure code the same way', function (): void {
@@ -722,9 +769,9 @@ it('records a durable last successful maintenance completion', function (): void
 
     $report = app(MaintenanceHealth::class)->report();
 
-    expect(app(MaintenanceMarkers::class)->timestamp(MaintenanceMarkers::MAINTAIN_LAST_SUCCESS)?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z')
-        ->and($report['checks']['maintenance']['last_success_at'])->toBe('2026-06-09T13:00:00Z')
-        ->and($report['checks']['maintenance']['age_minutes'])->toBe(45);
+    expect(app(MaintenanceMarkers::class)->timestamp(MaintenanceMarkers::MAINTAIN_LAST_SUCCESS)?->toIso8601ZuluString())->toBe('2026-06-09T13:10:00Z')
+        ->and($report['checks']['maintenance']['last_success_at'])->toBe('2026-06-09T13:10:00Z')
+        ->and($report['checks']['maintenance']['age_minutes'])->toBe(35);
 });
 
 /**
