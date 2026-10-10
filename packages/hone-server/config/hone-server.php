@@ -42,15 +42,6 @@ return [
         // Timeline buckets outlive raw telemetry so annual activity comparisons remain available.
         'timeline_days' => (int) env('HONE_RETENTION_TIMELINE_DAYS', 400),
     ],
-    /*
-     | The hourly rollup re-reads whole UTC bucket days from (now - late_arrival_hours) through today,
-     | so an event that arrives up to this many hours after it occurred is still aggregated. The
-     | default is a conservative guess, NOT a measurement: size it from the observed
-     | created_at - occurred_at distribution. Older ranges are rebuilt with `hone:backfill`.
-     */
-    'rollup' => [
-        'late_arrival_hours' => (int) env('HONE_ROLLUP_LATE_ARRIVAL_HOURS', 24),
-    ],
     'maintenance' => [
         // Releases the hone:maintain overlap lock if a run dies without clearing it.
         'overlap_lock_minutes' => (int) env('HONE_MAINTENANCE_OVERLAP_LOCK_MINUTES', 120),

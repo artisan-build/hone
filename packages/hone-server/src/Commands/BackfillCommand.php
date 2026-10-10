@@ -9,7 +9,6 @@ use ArtisanBuild\HoneServer\Maintenance\ActivityTimelineRollup;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceMarkers;
 use ArtisanBuild\HoneServer\Maintenance\RawEventRollup;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\DB;
 use Throwable;
 
 final class BackfillCommand extends SystemAuthorityCommand
@@ -48,11 +47,6 @@ final class BackfillCommand extends SystemAuthorityCommand
         $activityCheckpoint = $this->option('restart') ? null : $markers->get($activityCheckpointKey);
         $aggregateResumeFrom = $checkpoint === null ? $from : CarbonImmutable::parse($checkpoint, 'UTC')->addDay();
         $activityResumeFrom = $activityCheckpoint === null ? $from : CarbonImmutable::parse($activityCheckpoint, 'UTC')->addDay();
-
-        if ($this->hasUnbucketedEvents($from, $to->addDay())) {
-            $activityResumeFrom = $from;
-            $aggregateResumeFrom = $from;
-        }
 
         $resumeFrom = $aggregateResumeFrom->min($activityResumeFrom);
 
@@ -116,14 +110,5 @@ final class BackfillCommand extends SystemAuthorityCommand
         }
 
         return $date instanceof CarbonImmutable && $date->toDateString() === $value ? $date : null;
-    }
-
-    private function hasUnbucketedEvents(CarbonImmutable $from, CarbonImmutable $until): bool
-    {
-        return DB::connection('hone')->table('raw_events')
-            ->where('occurred_at', '>=', $from)
-            ->where('occurred_at', '<', $until)
-            ->whereNull('activity_bucketed_at')
-            ->exists();
     }
 }

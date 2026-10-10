@@ -27,6 +27,7 @@ final class RawEvent extends Model
     {
         return [
             'payload' => 'array',
+            'duration_ms' => 'float',
             'response' => 'array',
             'ran_queries' => 'boolean',
             'asn' => 'integer',

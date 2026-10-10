@@ -15,82 +15,99 @@ final class RollupCommand extends SystemAuthorityCommand
 {
     protected $signature = 'hone:rollup';
 
-    protected $description = 'Roll raw Hone events into daily aggregate metrics and per-minute activity buckets.';
+    protected $description = 'Roll closed hours of raw Hone events into daily aggregates and activity buckets.';
 
-    /**
-     * Re-aggregate the current bucket plus the trailing late-arrival window.
-     *
-     * On upgrade, the first activity rollup also covers all retained raw events before its watermark
-     * allows pruning. Older aggregate ranges are rebuilt explicitly with `hone:backfill`.
-     */
     public function handle(
         RawEventRollup $rollup,
         ActivityTimelineRollup $activityTimelineRollup,
         MaintenanceMarkers $markers,
     ): int {
         $startedAt = CarbonImmutable::now('UTC');
-        $lateArrivalHours = max(0, (int) config('hone-server.rollup.late_arrival_hours', 24));
-        $firstDay = $startedAt->subHours($lateArrivalHours)->startOfDay();
-
+        $closedUntil = $startedAt->startOfHour();
+        $rollupFrom = $this->rangeStart($markers->rollupWatermark(), $closedUntil);
+        $activityFrom = $this->rangeStart($markers->activityRollupWatermark(), $closedUntil);
+        $mergeableFrom = $this->mergeableFrom($markers, $rollupFrom);
         $groups = 0;
         $rows = 0;
         $activityBuckets = 0;
-        $activityFirstDay = $this->activityFirstDay($firstDay, $markers);
 
-        for ($day = $activityFirstDay; $day->lessThanOrEqualTo($startedAt); $day = $day->addDay()) {
-            $result = $activityTimelineRollup->rollupDay($day, $startedAt);
+        for ($from = $activityFrom; $from->lessThan($closedUntil); $from = $until) {
+            $until = $from->startOfHour()->addHour()->min($closedUntil);
+            $result = $activityTimelineRollup->rollupRange($from, $until, $startedAt);
             $activityBuckets += $result['buckets'];
+
+            if (! $markers->advanceActivityRollupWatermark($from, $until)) {
+                $this->warn('Activity rollup watermark did not advance; prune remains behind the gap.');
+
+                break;
+            }
         }
 
-        for ($day = $firstDay; $day->lessThanOrEqualTo($startedAt); $day = $day->addDay()) {
-            $result = $rollup->rollupDay($day, $startedAt);
+        for ($from = $rollupFrom; $from->lessThan($closedUntil); $from = $until) {
+            $until = $from->startOfHour()->addHour()->min($closedUntil);
+            $result = $rollup->rollupRange($from, $until, $startedAt);
             $groups += $result['groups'];
-            $rows += $result['rows'];
+            $bucketDay = $from->startOfDay();
+
+            if ($bucketDay->greaterThanOrEqualTo($mergeableFrom)) {
+                $dailyResult = $rollup->rollupDaily($bucketDay, $startedAt);
+                $rows += $dailyResult['rows'];
+            }
+
+            if (! $markers->advanceRollupWatermark($from, $until)) {
+                $this->warn('Aggregate rollup watermark did not advance; prune remains behind the gap.');
+
+                break;
+            }
         }
 
-        if (! $markers->advanceRollupWatermark($firstDay, $startedAt)) {
-            $watermark = $markers->rollupWatermark();
-
-            $this->warn(sprintf(
-                'Rollup watermark not advanced: raw events before %s may be unaggregated (watermark %s). Prune retains them until hone:backfill covers the gap.',
-                $firstDay->toIso8601ZuluString(),
-                $watermark?->toIso8601ZuluString() ?? 'unset',
-            ));
+        if ($activityFrom->equalTo($closedUntil) && $markers->activityRollupWatermark() === null) {
+            $markers->advanceActivityRollupWatermark($closedUntil, $closedUntil);
         }
 
-        if (! $markers->advanceActivityRollupWatermark($activityFirstDay, $startedAt)) {
-            $watermark = $markers->activityRollupWatermark();
-
-            $this->warn(sprintf(
-                'Activity rollup watermark not advanced: raw events before %s may be unbucketed (watermark %s). Prune retains them until hone:backfill covers the gap.',
-                $activityFirstDay->toIso8601ZuluString(),
-                $watermark?->toIso8601ZuluString() ?? 'unset',
-            ));
+        if ($rollupFrom->equalTo($closedUntil) && $markers->rollupWatermark() === null) {
+            $markers->advanceRollupWatermark($closedUntil, $closedUntil);
         }
 
         $this->info(sprintf(
-            'Processed %d groups and %d activity buckets from %s; upserted %d aggregate rows.',
+            'Processed %d aggregate groups and %d activity buckets through %s; upserted %d daily aggregate rows.',
             $groups,
             $activityBuckets,
-            $firstDay->toDateString(),
+            $closedUntil->toIso8601ZuluString(),
             $rows,
         ));
 
         return self::SUCCESS;
     }
 
-    private function activityFirstDay(CarbonImmutable $firstDay, MaintenanceMarkers $markers): CarbonImmutable
+    private function rangeStart(?CarbonImmutable $watermark, CarbonImmutable $closedUntil): CarbonImmutable
     {
-        if ($markers->activityRollupWatermark() !== null) {
-            return $firstDay;
+        if ($watermark !== null) {
+            return $watermark;
         }
 
         $oldestRawEvent = DB::connection('hone')->table('raw_events')->min('occurred_at');
 
-        if ($oldestRawEvent === null) {
-            return $firstDay;
+        return $oldestRawEvent === null
+            ? $closedUntil
+            : CarbonImmutable::parse((string) $oldestRawEvent)->utc();
+    }
+
+    private function mergeableFrom(MaintenanceMarkers $markers, CarbonImmutable $rollupFrom): CarbonImmutable
+    {
+        $existing = $markers->rollupMergeableFrom();
+
+        if ($existing !== null) {
+            return $existing;
         }
 
-        return CarbonImmutable::parse((string) $oldestRawEvent)->utc()->startOfDay()->min($firstDay);
+        $legacyWatermark = $markers->rollupWatermark();
+        $mergeableFrom = $legacyWatermark !== null && ! $legacyWatermark->equalTo($legacyWatermark->startOfDay())
+            ? $legacyWatermark->startOfDay()->addDay()
+            : $rollupFrom->startOfDay();
+
+        $markers->putTimestamp(MaintenanceMarkers::ROLLUP_MERGEABLE_FROM, $mergeableFrom);
+
+        return $mergeableFrom;
     }
 }

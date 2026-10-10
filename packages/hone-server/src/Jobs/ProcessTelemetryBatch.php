@@ -51,6 +51,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
                     'deploy' => blank($this->deploy) ? null : $this->deploy,
                     'occurred_at' => $this->occurredAt($record),
                     'normalized_key' => Normalizer::keyFor($recordType, $record),
+                    'duration_ms' => $this->durationMs($record),
                     'payload' => $record,
                     ...$enrichment,
                 ]);
@@ -109,6 +110,20 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
         }
 
         return $recordType !== '' ? $recordType : 'unknown';
+    }
+
+    /** @param array<string, mixed> $record */
+    private function durationMs(array $record): ?float
+    {
+        if (is_int($record['duration'] ?? null) || is_float($record['duration'] ?? null)) {
+            return (float) $record['duration'] / 1000;
+        }
+
+        if (is_int($record['duration_ms'] ?? null) || is_float($record['duration_ms'] ?? null)) {
+            return (float) $record['duration_ms'];
+        }
+
+        return null;
     }
 
     /**

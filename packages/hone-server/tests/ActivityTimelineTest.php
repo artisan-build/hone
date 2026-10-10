@@ -62,15 +62,15 @@ it('rolls execution activity into isolated UTC minute buckets idempotently', fun
 
     RawEvent::query()->where('app', 'checkout')->delete();
     rawActivity('checkout', '2026-06-09 12:34:59+00', 'guest', true);
-    Artisan::call('hone:rollup');
+    Artisan::call('hone:backfill', ['from' => '2026-06-09', 'to' => '2026-06-09', '--restart' => true]);
 
-    expect($checkout->fresh()->guest_requests)->toBe(3)
-        ->and($checkout->fresh()->guest_requests_with_queries)->toBe(2)
+    expect($checkout->fresh()->guest_requests)->toBe(1)
+        ->and($checkout->fresh()->guest_requests_with_queries)->toBe(1)
         ->and(ActivityBucket::query()->count())->toBe(2);
 });
 
 it('places activity one second either side of an exact five minute boundary', function (): void {
-    Carbon::setTestNow('2026-06-09 09:10:00+00');
+    Carbon::setTestNow('2026-06-09 10:00:00+00');
 
     rawActivity('checkout', '2026-06-09 09:04:59+00', 'human', true);
     rawActivity('checkout', '2026-06-09 09:05:00+00', 'human', true);
@@ -117,7 +117,7 @@ it('buckets expired raw activity before maintenance prunes it', function (): voi
         ->toBe('2026-06-09T13:00:00Z');
 });
 
-it('claims timeline activity before daily aggregate scans', function (): void {
+it('reads timeline activity before aggregate scans without updating raw events', function (): void {
     rawActivity('checkout', '2026-06-09 12:30:00+00', 'guest', true);
 
     DB::connection('hone')->enableQueryLog();
@@ -125,13 +125,13 @@ it('claims timeline activity before daily aggregate scans', function (): void {
     $queries = collect(DB::connection('hone')->getQueryLog())->pluck('query')->values();
     DB::connection('hone')->disableQueryLog();
 
-    $activityIndex = $queries->search(fn (string $query): bool => str_contains($query, 'UPDATE raw_events')
-        && str_contains($query, 'activity_bucketed_at'));
+    $activityIndex = $queries->search(fn (string $query): bool => str_contains($query, 'WITH source_events AS'));
     $aggregateIndex = $queries->search(fn (string $query): bool => str_contains($query, 'WITH raw_values AS'));
 
     expect($activityIndex)->toBeInt()
         ->and($aggregateIndex)->toBeInt()
-        ->and($activityIndex)->toBeLessThan($aggregateIndex);
+        ->and($activityIndex)->toBeLessThan($aggregateIndex)
+        ->and($queries->contains(fn (string $query): bool => str_contains(strtolower($query), 'update raw_events')))->toBeFalse();
 });
 
 it('retains timeline buckets independently for 400 days at the exact cutoff', function (): void {
@@ -176,26 +176,25 @@ it('requires both durable rollups before pruning raw activity', function (): voi
     expect(RawEvent::query()->whereKey($expired->getKey())->exists())->toBeTrue();
 
     $markers->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, CarbonImmutable::now('UTC'));
-    $expired->update(['activity_bucketed_at' => now()]);
     Artisan::call('hone:prune');
 
     expect(RawEvent::query()->whereKey($expired->getKey())->exists())->toBeFalse();
 });
 
-it('retains raw events that have not committed their activity rollup', function (): void {
+it('uses time-range watermarks instead of per-row activity flags when pruning', function (): void {
     config()->set('hone-server.retention.raw_hours', 1);
     $markers = app(MaintenanceMarkers::class);
     $markers->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, CarbonImmutable::now('UTC'));
     $markers->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, CarbonImmutable::now('UTC'));
 
-    $covered = rawActivity('checkout', '2026-06-09 10:00:00+00', 'guest', false);
-    $covered->update(['activity_bucketed_at' => now()]);
-    $concurrent = rawActivity('checkout', '2026-06-09 10:01:00+00', 'guest', false);
+    $legacyFlagged = rawActivity('checkout', '2026-06-09 10:00:00+00', 'guest', false);
+    $legacyFlagged->update(['activity_bucketed_at' => now()]);
+    $unflagged = rawActivity('checkout', '2026-06-09 10:01:00+00', 'guest', false);
 
     Artisan::call('hone:prune');
 
-    expect(RawEvent::query()->whereKey($covered->getKey())->exists())->toBeFalse()
-        ->and(RawEvent::query()->whereKey($concurrent->getKey())->exists())->toBeTrue();
+    expect(RawEvent::query()->whereKey($legacyFlagged->getKey())->exists())->toBeFalse()
+        ->and(RawEvent::query()->whereKey($unflagged->getKey())->exists())->toBeFalse();
 });
 
 function rawActivity(string $app, string $occurredAt, string $actor, ?bool $ranQueries): RawEvent

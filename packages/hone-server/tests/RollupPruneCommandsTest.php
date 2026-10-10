@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\HoneServer\Maintenance\LogarithmicHistogram;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceHealth;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceMarkers;
 use ArtisanBuild\HoneServer\Models\Aggregate;
@@ -56,9 +57,39 @@ it('rolls raw events into count and duration aggregate metrics', function (): vo
         ->and($aggregates['count'])->toBe(5.0)
         ->and($aggregates['avg'])->toBe(40.0)
         ->and($aggregates['max'])->toBe(100.0)
-        ->and(abs($aggregates['p95'] - $expectedP95))->toBeLessThan(0.5)
-        ->and(abs($aggregates['p99'] - $expectedP99))->toBeLessThan(0.5)
+        ->and(($aggregates['p95'] - $expectedP95) / $expectedP95)->toBeBetween(0, LogarithmicHistogram::RELATIVE_ERROR)
+        ->and(($aggregates['p99'] - $expectedP99) / $expectedP99)->toBeBetween(0, LogarithmicHistogram::RELATIVE_ERROR)
         ->and(Aggregate::query()->pluck('sample_count')->unique()->all())->toBe([5]);
+});
+
+it('merges hourly histograms into daily percentiles within the documented error bound', function (): void {
+    $durations = range(1, 200);
+
+    foreach ($durations as $index => $duration) {
+        RawEvent::factory()->create([
+            'app' => 'checkout',
+            'record_type' => 'query',
+            'normalized_key' => 'histogram-fixture',
+            'deploy' => null,
+            'occurred_at' => Carbon::parse('2026-06-09 01:00:00+00')->addHours($index % 10),
+            'payload' => ['duration_ms' => $duration],
+        ]);
+    }
+
+    Artisan::call('hone:rollup');
+
+    $aggregates = Aggregate::query()
+        ->where('normalized_key', 'histogram-fixture')
+        ->pluck('value', 'metric');
+
+    foreach ([[0.95, 'p95'], [0.99, 'p99']] as [$percentile, $metric]) {
+        $exact = percentileFor($durations, $percentile);
+
+        expect(($aggregates[$metric] - $exact) / $exact)
+            ->toBeBetween(0, LogarithmicHistogram::RELATIVE_ERROR);
+    }
+
+    expect(DB::connection('hone')->table('hourly_aggregate_rollups')->distinct('bucket_hour')->count('bucket_hour'))->toBe(10);
 });
 
 it('converts Nightwatch microsecond durations to milliseconds', function (): void {
@@ -89,7 +120,7 @@ it('converts Nightwatch microsecond durations to milliseconds', function (): voi
 
     expect($aggregates['avg'])->toBe(40.0)
         ->and($aggregates['max'])->toBe(100.0)
-        ->and(abs($aggregates['p95'] - $expectedP95))->toBeLessThan(0.5);
+        ->and(($aggregates['p95'] - $expectedP95) / $expectedP95)->toBeBetween(0, LogarithmicHistogram::RELATIVE_ERROR);
 });
 
 it('keeps rollups idempotent for unknown deploy groups', function (): void {
@@ -133,8 +164,8 @@ it('ignores non-numeric duration payloads without aborting the rollup', function
         ->and($aggregates['count'])->toBe(2.0)
         ->and($aggregates['avg'])->toBe(50.0)
         ->and($aggregates['max'])->toBe(50.0)
-        ->and($aggregates['p95'])->toBe(50.0)
-        ->and($aggregates['p99'])->toBe(50.0)
+        ->and(($aggregates['p95'] - 50) / 50)->toBeBetween(0, LogarithmicHistogram::RELATIVE_ERROR)
+        ->and(($aggregates['p99'] - 50) / 50)->toBeBetween(0, LogarithmicHistogram::RELATIVE_ERROR)
         ->and(Aggregate::query()->pluck('sample_count')->unique()->all())->toBe([2]);
 });
 
@@ -151,14 +182,14 @@ it('does not overwrite complete aggregates with lower sample partial rerollups',
         RawEvent::factory()->create($eventAttributes + ['payload' => ['duration_ms' => $duration]]);
     }
 
-    Artisan::call('hone:rollup');
+    Artisan::call('hone:backfill', ['from' => '2026-06-09', 'to' => '2026-06-09', '--restart' => true]);
 
     expect(Aggregate::query()->where('metric', 'count')->sole()->value)->toBe(5.0);
 
     $deletedIds = RawEvent::query()->orderBy('id')->limit(2)->pluck('id');
     RawEvent::query()->whereIn('id', $deletedIds)->delete();
 
-    Artisan::call('hone:rollup');
+    Artisan::call('hone:backfill', ['from' => '2026-06-09', 'to' => '2026-06-09', '--restart' => true]);
 
     expect(Aggregate::query()->where('metric', 'count')->sole()->value)->toBe(5.0)
         ->and(Aggregate::query()->where('metric', 'count')->sole()->sample_count)->toBe(5);
@@ -167,7 +198,7 @@ it('does not overwrite complete aggregates with lower sample partial rerollups',
         RawEvent::factory()->create($eventAttributes + ['payload' => ['duration_ms' => $duration]]);
     }
 
-    Artisan::call('hone:rollup');
+    Artisan::call('hone:backfill', ['from' => '2026-06-09', 'to' => '2026-06-09', '--restart' => true]);
 
     expect(Aggregate::query()->where('metric', 'count')->sole()->value)->toBe(6.0)
         ->and(Aggregate::query()->where('metric', 'count')->sole()->sample_count)->toBe(6);
@@ -288,6 +319,25 @@ it('registers rollup prune and maintain commands while scheduling maintain but n
         ->and($commands->contains(fn (string $command): bool => str_contains($command, 'hone:prune')))->toBeFalse();
 });
 
+it('uses an instant nullable duration column and the concurrent hourly rollup index', function (): void {
+    $durationColumn = DB::connection('hone')->selectOne(<<<'SQL'
+        SELECT is_nullable, column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'raw_events' AND column_name = 'duration_ms'
+    SQL);
+    $indexDefinition = DB::connection('hone')->table('pg_indexes')
+        ->where('schemaname', 'public')
+        ->where('indexname', 'hourly_aggregate_rollups_unique')
+        ->value('indexdef');
+    $migration = require __DIR__.'/../database/migrations/2026_10_10_152430_add_hourly_aggregate_rollups_unique_index.php';
+
+    expect($durationColumn->is_nullable)->toBe('YES')
+        ->and($durationColumn->column_default)->toBeNull()
+        ->and($indexDefinition)->toContain('UNIQUE INDEX')
+        ->and($indexDefinition)->toContain('NULLS NOT DISTINCT')
+        ->and($migration->withinTransaction)->toBeFalse();
+});
+
 it('schedules health hourly after maintenance behind its own overlap lock', function (): void {
     $events = collect(app(Schedule::class)->events())
         ->filter(fn (Event $event): bool => str_contains((string) $event->command, 'hone:'))
@@ -337,7 +387,7 @@ it('never issues a rollup statement carrying more than 65,535 bindings', functio
         ->and(Aggregate::query()->count())->toBe(6600);
 });
 
-it('reads only the trailing window and leaves out-of-window aggregates untouched', function (): void {
+it('reads only closed hours from the watermarks and leaves older aggregates untouched', function (): void {
     $staleUpdatedAt = Carbon::parse('2026-06-05 23:00:00+00');
     $outOfWindowAggregate = Aggregate::factory()->create([
         'app' => 'checkout',
@@ -376,12 +426,16 @@ it('reads only the trailing window and leaves out-of-window aggregates untouched
         'occurred_at' => Carbon::parse('2026-06-08 01:00:00+00'),
         'payload' => ['sql' => 'select 3'],
     ]);
+    $markers = app(MaintenanceMarkers::class);
+    $watermark = CarbonImmutable::parse('2026-06-08 00:00:00+00');
+    $markers->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, $watermark);
+    $markers->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, $watermark);
+    $markers->putTimestamp(MaintenanceMarkers::ROLLUP_MERGEABLE_FROM, $watermark);
 
     DB::connection('hone')->enableQueryLog();
     Artisan::call('hone:rollup');
     $rawEventStatements = collect(DB::connection('hone')->getQueryLog())
-        ->pluck('query')
-        ->filter(fn (string $sql): bool => str_contains(strtolower($sql), 'from raw_events'));
+        ->filter(fn (array $entry): bool => str_contains(strtolower($entry['query']), 'from raw_events'));
     DB::connection('hone')->disableQueryLog();
 
     $untouched = Aggregate::query()->findOrFail($outOfWindowAggregate->getKey());
@@ -392,28 +446,15 @@ it('reads only the trailing window and leaves out-of-window aggregates untouched
         ->and(Aggregate::query()->where('normalized_key', 'old-unaggregated-query')->exists())->toBeFalse()
         ->and(Aggregate::query()->where('normalized_key', 'new-query')->where('metric', 'count')->value('value'))->toBe(1.0)
         ->and($rawEventStatements)->not->toBeEmpty()
-        ->and($rawEventStatements->every(fn (string $sql): bool => str_contains($sql, 'occurred_at >= ?') || str_contains($sql, '"occurred_at" <')))->toBeTrue();
-});
+        ->and($rawEventStatements->every(function (array $entry) use ($watermark): bool {
+            $from = CarbonImmutable::parse((string) $entry['bindings'][0]);
+            $until = CarbonImmutable::parse((string) $entry['bindings'][1]);
 
-it('widens the rollup read window through the late arrival setting', function (): void {
-    config()->set('hone-server.rollup.late_arrival_hours', 72);
-
-    RawEvent::factory()->create([
-        'app' => 'checkout',
-        'normalized_key' => 'three-days-ago',
-        'deploy' => null,
-        'occurred_at' => Carbon::parse('2026-06-06 00:00:00+00'),
-    ]);
-    RawEvent::factory()->create([
-        'app' => 'checkout',
-        'normalized_key' => 'four-days-ago',
-        'deploy' => null,
-        'occurred_at' => Carbon::parse('2026-06-05 23:59:59+00'),
-    ]);
-
-    Artisan::call('hone:rollup');
-
-    expect(Aggregate::query()->where('metric', 'count')->pluck('normalized_key')->all())->toBe(['three-days-ago']);
+            return $from->greaterThanOrEqualTo($watermark)
+                && $until->diffInSeconds($from) <= 3600
+                && str_contains($entry['query'], 'occurred_at >= ?')
+                && str_contains($entry['query'], 'occurred_at < ?');
+        }))->toBeTrue();
 });
 
 it('registers maintenance so a second invocation cannot start while the first holds the overlap lock', function (): void {
@@ -446,11 +487,11 @@ it('backfills an explicit range one bucket day at a time without reading outside
     DB::connection('hone')->enableQueryLog();
     $exitCode = Artisan::call('hone:backfill', ['from' => '2026-06-02', 'to' => '2026-06-04']);
     $groupingReads = collect(DB::connection('hone')->getQueryLog())
-        ->filter(fn (array $entry): bool => str_contains($entry['query'], 'GROUP BY'));
+        ->filter(fn (array $entry): bool => str_contains($entry['query'], 'FROM raw_events'));
     DB::connection('hone')->disableQueryLog();
 
     expect($exitCode)->toBe(0)
-        ->and($groupingReads)->toHaveCount(6)
+        ->and($groupingReads)->toHaveCount(144)
         ->and($groupingReads->every(fn (array $entry): bool => str_contains($entry['query'], 'occurred_at >= ?')
             && str_contains($entry['query'], 'occurred_at < ?')))->toBeTrue()
         ->and(Aggregate::query()->where('metric', 'count')->orderBy('normalized_key')->pluck('normalized_key')->all())
@@ -468,8 +509,11 @@ it('resumes an interrupted backfill from its checkpoint', function (): void {
         ]);
     }
 
-    // A run that completed 2026-06-02 and was then interrupted.
+    Artisan::call('hone:backfill', ['from' => '2026-06-02', 'to' => '2026-06-02']);
+
+    // A run that completed 2026-06-02 and was then interrupted before the next day.
     app(MaintenanceMarkers::class)->put('backfill.2026-06-02.2026-06-04', '2026-06-02');
+    app(MaintenanceMarkers::class)->put('activity_backfill.2026-06-02.2026-06-04', '2026-06-02');
 
     Artisan::call('hone:backfill', ['from' => '2026-06-02', 'to' => '2026-06-04']);
 
@@ -529,41 +573,46 @@ it('rejects backfill ranges that are malformed, reversed, or end after today', f
     'impossible date' => [['from' => '2026-02-30', 'to' => '2026-03-02']],
 ]);
 
-it('does not advance the watermark across a gap until a backfill closes it', function (): void {
+it('recovers both rollups from day-old watermarks in bounded non-mutating hourly reads', function (): void {
     $markers = app(MaintenanceMarkers::class);
-    $markers->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, CarbonImmutable::parse('2026-06-03 10:00:00+00'));
+    $stuckWatermark = CarbonImmutable::parse('2026-06-08 11:15:33+00');
+    $markers->putTimestamp(MaintenanceMarkers::ROLLUP_WATERMARK, $stuckWatermark);
+    $markers->putTimestamp(MaintenanceMarkers::ACTIVITY_ROLLUP_WATERMARK, $stuckWatermark);
+    rawActivityForBackfill('checkout', '2026-06-08 12:34:00+00');
+    rawActivityForBackfill('checkout', '2026-06-09 12:34:00+00');
 
-    RawEvent::factory()->create(['deploy' => null, 'occurred_at' => Carbon::parse('2026-06-05 12:00:00+00')]);
-
-    // The hourly window starts 2026-06-08, leaving 2026-06-03 10:00 onwards unaggregated.
+    DB::connection('hone')->enableQueryLog();
     Artisan::call('hone:rollup');
+    $rawReads = collect(DB::connection('hone')->getQueryLog())
+        ->filter(fn (array $entry): bool => str_contains($entry['query'], 'FROM raw_events'));
+    DB::connection('hone')->disableQueryLog();
 
-    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-03T10:00:00Z')
-        ->and(Artisan::output())->toContain('watermark not advanced');
+    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z')
+        ->and($markers->activityRollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z')
+        ->and($markers->rollupMergeableFrom()?->toIso8601ZuluString())->toBe('2026-06-09T00:00:00Z')
+        ->and(Aggregate::query()->whereDate('bucket_date', '2026-06-08')->exists())->toBeFalse()
+        ->and(Aggregate::query()->whereDate('bucket_date', '2026-06-09')->exists())->toBeTrue()
+        ->and(RawEvent::query()->whereNotNull('activity_bucketed_at')->exists())->toBeFalse()
+        ->and($rawReads)->not->toBeEmpty()
+        ->and($rawReads->every(function (array $entry): bool {
+            $from = CarbonImmutable::parse((string) $entry['bindings'][0]);
+            $until = CarbonImmutable::parse((string) $entry['bindings'][1]);
 
-    Artisan::call('hone:backfill', ['from' => '2026-06-03', 'to' => '2026-06-07']);
-
-    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-08T00:00:00Z');
-
-    Artisan::call('hone:rollup');
-
-    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z');
+            return $until->diffInSeconds($from) <= 3600
+                && ! str_contains(strtolower($entry['query']), 'update raw_events');
+        }))->toBeTrue();
 });
 
-it('starts the watermark on a fresh install only when nothing older than the window exists', function (): void {
+it('starts fresh watermarks at the oldest raw event and catches up through the last closed hour', function (): void {
     $markers = app(MaintenanceMarkers::class);
 
     RawEvent::factory()->create(['deploy' => null, 'occurred_at' => Carbon::parse('2026-06-01 12:00:00+00')]);
 
     Artisan::call('hone:rollup');
 
-    expect($markers->rollupWatermark())->toBeNull();
-
-    RawEvent::query()->delete();
-
-    Artisan::call('hone:rollup');
-
-    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z');
+    expect($markers->rollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z')
+        ->and($markers->activityRollupWatermark()?->toIso8601ZuluString())->toBe('2026-06-09T13:00:00Z')
+        ->and(Aggregate::query()->where('metric', 'count')->value('value'))->toBe(1.0);
 });
 
 it('seeds the watermark from the last legacy whole-table rollup write', function (): void {

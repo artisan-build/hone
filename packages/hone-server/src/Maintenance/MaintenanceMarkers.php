@@ -17,6 +17,8 @@ final class MaintenanceMarkers
 {
     public const ROLLUP_WATERMARK = 'rollup.watermark';
 
+    public const ROLLUP_MERGEABLE_FROM = 'rollup.mergeable_from';
+
     public const ACTIVITY_ROLLUP_WATERMARK = 'activity_rollup.watermark';
 
     public const MAINTAIN_LAST_SUCCESS = 'maintain.last_success_at';
@@ -68,6 +70,11 @@ final class MaintenanceMarkers
         return $this->timestamp(self::ACTIVITY_ROLLUP_WATERMARK);
     }
 
+    public function rollupMergeableFrom(): ?CarbonImmutable
+    {
+        return $this->timestamp(self::ROLLUP_MERGEABLE_FROM);
+    }
+
     public function rawPruneWatermark(): ?CarbonImmutable
     {
         $aggregateWatermark = $this->rollupWatermark();
@@ -93,16 +100,6 @@ final class MaintenanceMarkers
 
     public function advanceActivityRollupWatermark(CarbonImmutable $coveredFrom, CarbonImmutable $coveredUntil): bool
     {
-        $unbucketedEventsExist = DB::connection('hone')->table('raw_events')
-            ->where('occurred_at', '>=', $coveredFrom)
-            ->where('occurred_at', '<', $coveredUntil)
-            ->whereNull('activity_bucketed_at')
-            ->exists();
-
-        if ($unbucketedEventsExist) {
-            return false;
-        }
-
         return $this->advanceWatermark(self::ACTIVITY_ROLLUP_WATERMARK, $coveredFrom, $coveredUntil);
     }
 

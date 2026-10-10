@@ -32,7 +32,6 @@ final class PruneCommand extends SystemAuthorityCommand
 
         $rawDeleted = $rawCutoff === null ? 0 : DB::connection('hone')->table('raw_events')
             ->where('occurred_at', '<', $rawCutoff)
-            ->whereNotNull('activity_bucketed_at')
             ->delete();
 
         if ($rawCutoff === null || $rawCutoff->lessThan($retentionCutoff)) {
@@ -47,8 +46,12 @@ final class PruneCommand extends SystemAuthorityCommand
             ->where('occurred_at', '<', now()->subDays($sampleDays))
             ->delete();
 
+        $aggregateCutoff = CarbonImmutable::now('UTC')->startOfDay()->subDays($aggregateDays);
         $aggregatesDeleted = DB::connection('hone')->table('aggregates')
-            ->where('bucket_date', '<', now()->toImmutable()->startOfDay()->subDays($aggregateDays)->toDateString())
+            ->where('bucket_date', '<', $aggregateCutoff->toDateString())
+            ->delete();
+        $hourlyRollupsDeleted = DB::connection('hone')->table('hourly_aggregate_rollups')
+            ->where('bucket_hour', '<', $aggregateCutoff)
             ->delete();
 
         $activityBucketsDeleted = DB::connection('hone')->table('activity_buckets')
@@ -64,10 +67,11 @@ final class PruneCommand extends SystemAuthorityCommand
             ->delete();
 
         $this->info(sprintf(
-            'Pruned %d raw events, %d samples, %d aggregates, %d activity buckets, %d background identity buckets, and %d request fact buckets.',
+            'Pruned %d raw events, %d samples, %d aggregates, %d hourly aggregate rollups, %d activity buckets, %d background identity buckets, and %d request fact buckets.',
             $rawDeleted,
             $samplesDeleted,
             $aggregatesDeleted,
+            $hourlyRollupsDeleted,
             $activityBucketsDeleted,
             $backgroundActivityBucketsDeleted,
             $requestActivityBucketsDeleted,
