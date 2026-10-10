@@ -6,17 +6,19 @@ namespace ArtisanBuild\HoneServer\Jobs;
 
 use ArtisanBuild\BuiltForCloud\Contracts\SystemAuthorityQueueEntry;
 use ArtisanBuild\HoneServer\Contracts\AsnLookup;
-use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use ArtisanBuild\HoneServer\Support\PublicIp;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEntry
 {
+    private const INSERT_CHUNK_ROWS = 500;
+
     public ?string $connection = null;
 
     /**
@@ -34,6 +36,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
     public function handle(AsnLookup $asnLookup): void
     {
         $this->persistLossCounters();
+        $rows = [];
 
         foreach ($this->records as $record) {
             if (! is_array($record)) {
@@ -42,29 +45,96 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
 
             /** @var array<string, mixed> $record */
             $recordType = $this->recordType($record);
-            $enrichment = $this->enrichment($recordType, $record, $asnLookup);
 
             try {
-                RawEvent::query()->create([
-                    'app' => $this->app,
-                    'record_type' => $recordType,
-                    'deploy' => blank($this->deploy) ? null : $this->deploy,
-                    'occurred_at' => $this->occurredAt($record),
-                    'normalized_key' => Normalizer::keyFor($recordType, $record),
-                    'duration_ms' => $this->durationMs($record),
-                    'payload' => $record,
-                    ...$enrichment,
-                ]);
+                $rows[] = $this->rawEventRow($recordType, $record, $asnLookup);
             } catch (Throwable $e) {
-                Log::warning('Failed to persist Hone telemetry record.', [
-                    'app' => $this->app,
-                    'record_type' => $recordType,
-                    'exception' => $e->getMessage(),
-                ]);
-
-                continue;
+                $this->logPersistenceFailure($recordType, $e);
             }
         }
+
+        foreach (array_chunk($rows, self::INSERT_CHUNK_ROWS) as $chunk) {
+            $this->insertChunk($chunk);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @return array<string, mixed>
+     */
+    private function rawEventRow(string $recordType, array $record, AsnLookup $asnLookup): array
+    {
+        $enrichment = [
+            'actor' => null,
+            'ran_queries' => null,
+            'response' => null,
+            'request_path' => null,
+            'request_host' => null,
+            'user_agent' => null,
+            'client_ip' => null,
+            'asn' => null,
+            ...$this->enrichment($recordType, $record, $asnLookup),
+        ];
+
+        if (is_array($enrichment['response'])) {
+            $enrichment['response'] = json_encode($enrichment['response'], JSON_THROW_ON_ERROR);
+        }
+
+        return [
+            'app' => $this->app,
+            'record_type' => $recordType,
+            'deploy' => blank($this->deploy) ? null : $this->deploy,
+            'occurred_at' => $this->occurredAt($record),
+            'normalized_key' => Normalizer::keyFor($recordType, $record),
+            'duration_ms' => $this->durationMs($record),
+            'payload' => json_encode($record, JSON_THROW_ON_ERROR),
+            ...$enrichment,
+        ];
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function insertChunk(array $rows): void
+    {
+        try {
+            $this->insertRows($rows);
+        } catch (Throwable) {
+            foreach ($rows as $row) {
+                try {
+                    $this->insertRows([$row]);
+                } catch (Throwable $e) {
+                    $this->logPersistenceFailure((string) $row['record_type'], $e);
+                }
+            }
+        }
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function insertRows(array $rows): void
+    {
+        $connection = DB::connection('hone');
+
+        $connection->transaction(fn (): bool => $connection->table('raw_events')->insert($rows));
+    }
+
+    private function logPersistenceFailure(string $recordType, Throwable $exception): void
+    {
+        $rootCause = $exception;
+
+        while ($rootCause->getPrevious() instanceof Throwable) {
+            $rootCause = $rootCause->getPrevious();
+        }
+
+        $message = Str::limit((string) preg_replace('/\s+/', ' ', $rootCause->getMessage()), 1000, '');
+
+        Log::warning(sprintf(
+            'Failed to persist Hone telemetry record (%s); %s: %s',
+            $recordType,
+            $rootCause::class,
+            $message,
+        ), [
+            'app' => $this->app,
+            'record_type' => $recordType,
+        ]);
     }
 
     private function persistLossCounters(): void

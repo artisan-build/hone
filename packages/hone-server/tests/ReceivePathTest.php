@@ -13,8 +13,10 @@ use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 
@@ -203,6 +205,56 @@ it('processes telemetry batches into raw events', function (): void {
         ->and($events->pluck('duration_ms')->all())->toBe([12.0, 34.0])
         ->and($events[0]->occurred_at)->not->toBeNull()
         ->and($events[1]->occurred_at)->not->toBeNull();
+});
+
+it('persists large telemetry batches in bounded bulk inserts', function (): void {
+    $records = array_map(
+        fn (int $index): array => ['t' => 'query', 'sql' => 'select '.$index, 'duration_ms' => $index],
+        range(1, 1201),
+    );
+    $rawEventInsertBindings = [];
+
+    DB::connection('hone')->listen(function (QueryExecuted $query) use (&$rawEventInsertBindings): void {
+        if (str_starts_with(strtolower($query->sql), 'insert into "raw_events"')) {
+            $rawEventInsertBindings[] = count($query->bindings);
+        }
+    });
+
+    (new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: 'abc123',
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: $records,
+    ))->handle(resolve(AsnLookup::class));
+
+    expect(RawEvent::query()->count())->toBe(1201)
+        ->and($rawEventInsertBindings)->toHaveCount(3)
+        ->and(max($rawEventInsertBindings))->toBeLessThan(65535)
+        ->and(RawEvent::query()->where('normalized_key', 'select 1201')->value('duration_ms'))->toBe(1201.0);
+});
+
+it('falls back around a rejected row and puts the root exception in the log message', function (): void {
+    Log::spy();
+
+    (new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: null,
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [
+            ['t' => 'query', 'sql' => 'select good_one'],
+            ['t' => 'query', 'sql' => str_repeat('x', 300)],
+            ['t' => 'query', 'sql' => 'select good_two'],
+        ],
+    ))->handle(resolve(AsnLookup::class));
+
+    expect(RawEvent::query()->orderBy('id')->pluck('normalized_key')->all())
+        ->toBe(['select good_one', 'select good_two']);
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'Failed to persist Hone telemetry record (query); PDOException:')
+            && str_contains($message, 'value too long for type character varying(255)')
+            && $context['record_type'] === 'query');
 });
 
 it('processes telemetry jobs serialized before loss counters were added', function (): void {
