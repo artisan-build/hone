@@ -8,7 +8,7 @@ Require the published client package:
 composer require artisan-build/hone-client
 ```
 
-The package requires PHP `^8.3` and Illuminate `^13.0`, so install it in a Laravel 13 application. Laravel auto-discovers `ArtisanBuild\HoneClient\HoneClientServiceProvider`; do not register the provider manually.
+The package requires PHP `^8.3` and supports Laravel 11.36 or newer, Laravel 12, and Laravel 13. Laravel auto-discovers `ArtisanBuild\HoneClient\HoneClientServiceProvider`; do not register the provider manually.
 
 The provider merges the package configuration automatically. Publish it only when the application needs to change package defaults in a tracked config file:
 

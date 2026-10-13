@@ -11,7 +11,7 @@ URL** and an installation-owned **hone.ingest credential** issued by Built for C
 
 ## Prerequisites
 
-- PHP **^8.3**; Laravel **11, 12, or 13** (`hone-client` supports `illuminate ^11|^12|^13`).
+- PHP **^8.3**; Laravel **11.36 or newer, 12, or 13** (`hone-client` supports `illuminate ^11.36|^12|^13`).
 - The Hone **ingest URL** (ends in `/ingest`, e.g. `https://<your-hone>/ingest`) and the **plaintext token**
   the Hone server printed for this app. (No `NIGHTWATCH_TOKEN` is used — Hone doesn't need one.)
 

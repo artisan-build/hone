@@ -78,3 +78,63 @@ jobs:
 
       - name: Run Hone Server Package Tests
         run: cd packages/hone-server && composer install --no-interaction --prefer-dist && composer lint:test && composer test
+
+  lowest-deps:
+    name: tests (lowest deps) / Laravel ${{ matrix.laravel-major }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/hone-client
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - laravel-major: 11
+            illuminate: ^11.36
+            testbench: ^9.7
+            pest: ^3.0
+          - laravel-major: 12
+            illuminate: ^12.0
+            testbench: ^10.0
+            pest: ^3.0
+          - laravel-major: 13
+            illuminate: ^13.0
+            testbench: ^11.0
+            pest: ^4.0
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Pin Laravel test matrix
+        run: |
+          composer require --no-update \
+            "illuminate/console:${{ matrix.illuminate }}" \
+            "illuminate/contracts:${{ matrix.illuminate }}" \
+            "illuminate/filesystem:${{ matrix.illuminate }}" \
+            "illuminate/http:${{ matrix.illuminate }}" \
+            "illuminate/log:${{ matrix.illuminate }}" \
+            "illuminate/support:${{ matrix.illuminate }}" \
+            "laravel/framework:${{ matrix.illuminate }}"
+          composer require --dev --no-update \
+            "orchestra/testbench:${{ matrix.testbench }}" \
+            "pestphp/pest:${{ matrix.pest }}"
+          composer config audit.block-insecure false
+
+      - name: Install lowest dependencies
+        run: composer update --prefer-lowest --prefer-stable -W --no-interaction
+
+      - name: Show resolved Laravel version
+        run: composer show laravel/framework
+
+      - name: Run Hone Client package tests
+        run: composer test -- --colors=never
