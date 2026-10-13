@@ -599,9 +599,10 @@ cloud command:run <env-id> --cmd="php artisan hone:health --json" -n
 
 ### Connecting a source app
 
-Your source app must be a **Laravel 13** application on **PHP `^8.3`** — `hone-client` requires
-`illuminate/contracts` and `illuminate/support` `^13.0` and `laravel/nightwatch` `^1.28`. On Laravel 11
-or 12 the `composer require` below fails to resolve.
+Your source app must run **Laravel 11.36 or later, 12 or 13** on **PHP `^8.3`**. `hone-client` requires
+`laravel/framework` and the `illuminate/*` packages it uses at `^11.36 || ^12.0 || ^13.0`, and
+`laravel/nightwatch` at `^1.28`. On a Laravel 11 release older than 11.36, the `composer require` below
+fails to resolve.
 
 **1. On the Hone server,** mint that app an ingest credential. The installation ref you choose becomes
 the app name in every Hone query. Skip this if you already did it in Cloud step 12.
