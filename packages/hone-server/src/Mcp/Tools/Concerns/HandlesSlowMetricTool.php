@@ -45,7 +45,11 @@ trait HandlesSlowMetricTool
                 $limit,
                 $this->excludesRoutelessKeys(),
             ),
-            'aggregate_freshness' => app(AggregateWindow::class)->freshness($days),
+            'aggregate_freshness' => app(AggregateWindow::class)->freshness(
+                $days,
+                $validated['app'] ?? null,
+                $validated['deploy'] ?? null,
+            ),
         ]);
     }
 

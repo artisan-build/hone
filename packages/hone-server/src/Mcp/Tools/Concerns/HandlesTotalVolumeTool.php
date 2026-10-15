@@ -28,7 +28,7 @@ trait HandlesTotalVolumeTool
                 'app' => $validated['app'] ?? null,
             ],
             'total' => app(AggregateWindow::class)->total($this->recordType(), $days, $validated['app'] ?? null),
-            'aggregate_freshness' => app(AggregateWindow::class)->freshness($days),
+            'aggregate_freshness' => app(AggregateWindow::class)->freshness($days, $validated['app'] ?? null),
         ]);
     }
 

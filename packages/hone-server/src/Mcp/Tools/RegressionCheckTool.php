@@ -58,7 +58,7 @@ final class RegressionCheckTool extends Tool
                 $validated['app'] ?? null,
                 $deploysLimit,
             ),
-            'aggregate_freshness' => app(AggregateWindow::class)->freshness(null),
+            'aggregate_freshness' => app(AggregateWindow::class)->freshness(null, $validated['app'] ?? null),
         ]);
     }
 

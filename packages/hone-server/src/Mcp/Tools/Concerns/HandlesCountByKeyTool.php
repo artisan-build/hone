@@ -38,7 +38,7 @@ trait HandlesCountByKeyTool
                 'count',
                 $limit,
             ),
-            'aggregate_freshness' => app(AggregateWindow::class)->freshness($days),
+            'aggregate_freshness' => app(AggregateWindow::class)->freshness($days, $validated['app'] ?? null),
         ]);
     }
 

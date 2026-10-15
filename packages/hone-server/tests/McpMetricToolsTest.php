@@ -364,6 +364,97 @@ it('returns seeded job and outgoing request offenders through their slow tools',
         ->assertSee('8');
 });
 
+it('does not use another app aggregate to report that an app scoped window is covered', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    RawEvent::factory()->create([
+        'app' => 'scalpels',
+        'record_type' => 'request',
+        'normalized_key' => 'GET /directory',
+        'occurred_at' => Carbon::now('UTC')->subMinutes(2),
+    ]);
+    seedAggregateBucket('another-app', 'request', 'GET /directory', $today, 10, 1, 1, 1, 1);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(QueryMetricTool::class, [
+        'record_type' => 'request',
+        'metric' => 'count',
+        'normalized_key' => 'GET /directory',
+        'app' => 'scalpels',
+        'days' => 1,
+    ])->assertOk());
+
+    expect($payload['metrics'])->toBe([])
+        ->and($payload['aggregate_freshness']['covers_window'])->toBeFalse();
+});
+
+it('reports app scoped freshness for every aggregate backed tool', function (string $toolClass, array $arguments): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    RawEvent::factory()->create([
+        'app' => 'scalpels',
+        'occurred_at' => Carbon::now('UTC')->subMinutes(2),
+    ]);
+    seedAggregateBucket('another-app', 'request', 'GET /directory', $today, 10, 1, 1, 1, 1);
+
+    $payload = honeToolPayload(HoneMcpServer::tool($toolClass, [
+        ...$arguments,
+        'app' => 'scalpels',
+    ])->assertOk());
+
+    expect($payload['aggregate_freshness']['covers_window'])->toBeFalse()
+        ->and($payload['aggregate_freshness']['newest_bucket_date'])->toBeNull();
+})->with([
+    'slow requests' => [SlowRequestsTool::class, []],
+    'slow queries' => [SlowQueriesTool::class, []],
+    'slow jobs' => [SlowJobsTool::class, []],
+    'slow outgoing requests' => [SlowOutgoingRequestsTool::class, []],
+    'regression check' => [RegressionCheckTool::class, ['record_type' => 'request', 'normalized_key' => 'GET /directory', 'metric' => 'count']],
+    'exceptions' => [ExceptionsTool::class, []],
+    'cache stats' => [CacheStatsTool::class, []],
+    'queue throughput' => [QueueThroughputTool::class, []],
+    'mail volume' => [MailVolumeTool::class, []],
+    'notification volume' => [NotificationVolumeTool::class, []],
+    'scheduled task health' => [ScheduledTaskHealthTool::class, []],
+    'command stats' => [CommandStatsTool::class, []],
+    'log volume' => [LogVolumeByLevelTool::class, []],
+    'top users' => [TopUsersTool::class, []],
+]);
+
+it('reports deploy scoped freshness for every deploy scoped aggregate tool', function (string $toolClass, array $arguments): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('scalpels', 'request', 'GET /directory', $today, 10, 1, 1, 1, 1, 'another-deploy');
+
+    $payload = honeToolPayload(HoneMcpServer::tool($toolClass, [
+        ...$arguments,
+        'app' => 'scalpels',
+        'deploy' => 'pending-deploy',
+    ])->assertOk());
+
+    expect($payload['aggregate_freshness']['covers_window'])->toBeFalse()
+        ->and($payload['aggregate_freshness']['newest_bucket_date'])->toBeNull();
+})->with([
+    'slow requests' => [SlowRequestsTool::class, []],
+    'slow queries' => [SlowQueriesTool::class, []],
+    'slow jobs' => [SlowJobsTool::class, []],
+    'slow outgoing requests' => [SlowOutgoingRequestsTool::class, []],
+    'query metric' => [QueryMetricTool::class, ['record_type' => 'request', 'metric' => 'count']],
+]);
+
+it('keeps unscoped freshness global', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+
+    seedAggregateBucket('another-app', 'request', 'GET /directory', $today, 10, 1, 1, 1, 1);
+
+    expect(app(AggregateWindow::class)->freshness(7))
+        ->toMatchArray([
+            'newest_bucket_date' => $today->toDateString(),
+            'age_days' => 0,
+            'covers_window' => true,
+            'warning' => null,
+        ]);
+});
+
 it('distinguishes a window no aggregates cover from a genuine zero', function (): void {
     $today = Carbon::now('UTC')->startOfDay();
 

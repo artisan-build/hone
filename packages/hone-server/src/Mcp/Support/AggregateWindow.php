@@ -40,17 +40,20 @@ final class AggregateWindow
     /**
      * Report how current the aggregates are, so an empty window is distinguishable from a stale one.
      *
-     * Freshness is global rather than per app: a stalled rollup stops every bucket at once, while one
-     * app's missing buckets are a genuine absence of traffic. `covers_window` is false when no
-     * aggregate bucket at all falls inside the requested window, in which case zeros and empty lists
-     * in the same payload mean "not aggregated", not "no traffic".
+     * Freshness follows the app and deploy scope of the aggregate query. Unscoped freshness remains
+     * global. `covers_window` is false when no matching aggregate bucket falls inside the requested
+     * window, in which case zeros and empty lists in the same payload mean "not aggregated", not
+     * "no traffic".
      *
      * @return array{newest_bucket_date: string|null, age_days: int|null, window_start: string|null, covers_window: bool, warning: string|null}
      */
-    public function freshness(?int $days): array
+    public function freshness(?int $days, ?string $app = null, ?string $deploy = null): array
     {
         $today = Carbon::now('UTC')->startOfDay();
-        $newest = DB::connection('hone')->table('aggregates')->max('bucket_date');
+        $newest = DB::connection('hone')->table('aggregates')
+            ->when($app !== null, fn (Builder $query) => $query->where('app', $app))
+            ->when($deploy !== null, fn (Builder $query) => $query->where('deploy', $deploy))
+            ->max('bucket_date');
         $newestBucket = $newest === null ? null : Carbon::parse((string) $newest, 'UTC')->startOfDay();
         $windowStart = $days === null ? null : $today->copy()->subDays($days);
         $coversWindow = $newestBucket !== null && ($windowStart === null || $newestBucket->greaterThanOrEqualTo($windowStart));

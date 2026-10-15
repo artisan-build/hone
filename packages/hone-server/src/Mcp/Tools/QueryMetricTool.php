@@ -63,7 +63,11 @@ final class QueryMetricTool extends Tool
                 $validated['deploy'] ?? null,
                 $days,
             ),
-            'aggregate_freshness' => app(AggregateWindow::class)->freshness($days),
+            'aggregate_freshness' => app(AggregateWindow::class)->freshness(
+                $days,
+                $validated['app'] ?? null,
+                $validated['deploy'] ?? null,
+            ),
         ]);
     }
 
