@@ -7,6 +7,13 @@ namespace ArtisanBuild\HoneServer;
 final class Normalizer
 {
     /**
+     * Every normalized_key column (raw_events, aggregates, samples,
+     * hourly_aggregate_rollups) is varchar(255), and two of them sit in
+     * unique indexes, so a key must never exceed this.
+     */
+    private const MAX_KEY_CHARACTERS = 255;
+
+    /**
      * @param  array<string, mixed>  $record
      */
     public static function keyFor(string $recordType, array $record): string
@@ -25,7 +32,24 @@ final class Normalizer
             default => $recordType,
         };
 
-        return self::fallback($key, $recordType);
+        return self::bounded(self::fallback($key, $recordType));
+    }
+
+    /**
+     * Keys at or under the column limit pass through byte-identical, so
+     * existing aggregates keep grouping with new data. Longer keys become a
+     * readable prefix plus a hash of the full key, so equal inputs still
+     * produce equal keys and two different long keys never share one.
+     */
+    private static function bounded(string $key): string
+    {
+        if (mb_strlen($key) <= self::MAX_KEY_CHARACTERS) {
+            return $key;
+        }
+
+        $hash = hash('sha256', $key);
+
+        return mb_substr($key, 0, self::MAX_KEY_CHARACTERS - strlen($hash) - 1).'#'.$hash;
     }
 
     private static function string(mixed $value): string

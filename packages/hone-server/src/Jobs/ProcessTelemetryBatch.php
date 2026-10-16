@@ -124,7 +124,14 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
             $rootCause = $rootCause->getPrevious();
         }
 
-        $message = Str::limit((string) preg_replace('/\s+/', ' ', $rootCause->getMessage()), 1000, '');
+        // Only the first line: Postgres puts the failing row's values on DETAIL
+        // lines, and record values must never reach the log.
+        $firstLine = strstr($rootCause->getMessage(), "\n", true);
+        $message = Str::limit((string) preg_replace(
+            '/\s+/',
+            ' ',
+            $firstLine === false ? $rootCause->getMessage() : $firstLine,
+        ), 1000, '');
 
         Log::warning(sprintf(
             'Failed to persist Hone telemetry record (%s); %s: %s',
