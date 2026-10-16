@@ -28,3 +28,7 @@ yarn-error.log
 
 # Laravel Cloud CLI local config
 .phpstorm.meta.php
+
+**/caddy
+frankenphp
+frankenphp-worker.php
