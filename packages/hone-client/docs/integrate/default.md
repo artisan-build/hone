@@ -28,11 +28,11 @@ Set both `HONE_URL` and `HONE_TOKEN` to activate the Nightwatch transport rebind
 | `HONE_TOKEN` | Bearer credential for ingest. Treat it as a secret. | Obtain through `connect_site` or issue it on the customer's Hone deployment as described below. No default. |
 | `HONE_APP` | Source application identifier written into every envelope. The current Hone receiver attributes stored events to the app ID resolved from `HONE_TOKEN`. | Set to a stable source identifier. Falls back to `APP_NAME`, then `laravel`. |
 | `APP_NAME` | Fallback source application identifier when `HONE_APP` is absent. | Existing Laravel application setting; fallback is `laravel`. |
-| `NIGHTWATCH_DEPLOY` | Optional deploy identifier written into every envelope for release comparison. | Set at deploy time, normally to the deployed commit SHA. Defaults to `null`. |
+| `NIGHTWATCH_DEPLOY` | Optional deploy identifier written into every envelope for release comparison. | Set at deploy time, normally to the deployed commit SHA. When it is unset, the client sends whatever deploy Nightwatch resolved from the platform (`LARAVEL_CLOUD_DEPLOY_UUID` on Laravel Cloud, `FORGE_DEPLOY_COMMIT` on Forge, `VAPOR_COMMIT_HASH` on Vapor), and `null` if there is none. |
 | `HONE_BUFFER` | Maximum records held in memory. Console processes send when this limit is reached; web requests discard and count the oldest records on overflow. | `500`. |
 | `HONE_FLUSH_INTERVAL` | Maximum age in seconds of the oldest console record before the next write sends the buffer. No timer or signal is installed. | `60`. |
 | `HONE_CONNECT_TIMEOUT` | Web HTTP connection timeout in seconds and fallback for the console timeout when explicitly set. | `0.5`; values below `0.05` are clamped to `0.05`. |
-| `HONE_TIMEOUT` | Web total HTTP request timeout in seconds and fallback for the console timeout when explicitly set. | `0.5`; values below `0.05` are clamped to `0.05`. |
+| `HONE_TIMEOUT` | Web total HTTP request timeout in seconds and fallback for the console timeout when explicitly set. The post runs on the terminate path, so the budget costs worker time rather than response time. | `2.5`; values below `0.05` are clamped to `0.05`. |
 | `HONE_CONSOLE_CONNECT_TIMEOUT` | Console HTTP connection timeout in seconds. | `2.0`, or explicit `HONE_CONNECT_TIMEOUT` when set. |
 | `HONE_CONSOLE_TIMEOUT` | Console total HTTP request timeout in seconds. | `5.0`, or explicit `HONE_TIMEOUT` when set. |
 | `NIGHTWATCH_ENABLED` | Enables Nightwatch collection. The installer preserves a truthy value or writes `true`. | Set to `true` unless the application intentionally disables telemetry. |

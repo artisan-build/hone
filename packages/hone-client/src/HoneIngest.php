@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneClient;
 
 use ArtisanBuild\HoneContracts\Envelope;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
@@ -16,6 +17,13 @@ use Throwable;
 final class HoneIngest implements Ingest
 {
     private const MINIMUM_TIMEOUT = 0.05;
+
+    /**
+     * How long a loss count may wait in the cache for a later request to carry
+     * it to Hone. Long enough to survive a slow patch of ingest, short enough
+     * that a count never shows up attached to an unrelated incident.
+     */
+    private const LOSS_CARRY_SECONDS = 3600;
 
     /**
      * @var list<array<string, mixed>>
@@ -49,6 +57,7 @@ final class HoneIngest implements Ingest
         private readonly Factory $http,
         private readonly LoggerInterface $logger,
         private readonly Core $nightwatch,
+        private readonly ?CacheRepository $cache = null,
     ) {
         $this->connectTimeout = max(self::MINIMUM_TIMEOUT, $connectTimeout);
         $this->timeout = max(self::MINIMUM_TIMEOUT, $timeout);
@@ -120,6 +129,8 @@ final class HoneIngest implements Ingest
             return;
         }
 
+        $carriedFailedRecords = $this->carriedFailedDeliveryRecords();
+
         try {
             $envelope = Envelope::make(
                 app: $this->app,
@@ -127,7 +138,7 @@ final class HoneIngest implements Ingest
                 sentAt: Carbon::now()->toIso8601String(),
                 records: $records,
                 overflowDroppedRecords: $this->overflowDroppedRecords,
-                failedDeliveryRecords: $this->failedDeliveryRecords,
+                failedDeliveryRecords: $this->failedDeliveryRecords + $carriedFailedRecords,
             )->toArray();
 
             $this->nightwatch->ignore(fn () => $this->pendingRequest()
@@ -139,9 +150,15 @@ final class HoneIngest implements Ingest
 
             $this->overflowDroppedRecords = 0;
             $this->failedDeliveryRecords = 0;
+            $this->forgetCarriedFailedDeliveryRecords($carriedFailedRecords);
         } catch (Throwable $e) {
-            $this->failedDeliveryRecords += count($records);
-            $this->debug('Hone ingest failed; dropping buffered records.', $e);
+            $failedRecords = count($records);
+
+            $this->warnAboutFailedDelivery($failedRecords, $e);
+
+            if (! $this->carryFailedDeliveryRecords($carriedFailedRecords + $failedRecords)) {
+                $this->failedDeliveryRecords += $carriedFailedRecords + $failedRecords;
+            }
         } finally {
             if ($clearBuffer) {
                 $this->buffer = [];
@@ -190,6 +207,78 @@ final class HoneIngest implements Ingest
 
             return $this->http->createPendingRequest();
         }
+    }
+
+    /**
+     * A dropped batch is the one failure mode nobody can see from the Hone side,
+     * so it is reported at warning level with the number of records lost. The
+     * host application's log stream is the only channel still open once the
+     * final attempt has failed.
+     */
+    private function warnAboutFailedDelivery(int $records, Throwable $e): void
+    {
+        try {
+            $this->logger->warning(
+                "Hone ingest delivery failed; dropped {$records} telemetry records.",
+                ['dropped_records' => $records, 'exception' => $e],
+            );
+        } catch (Throwable) {
+            // Fail open even if the host application's logger is unavailable.
+        }
+    }
+
+    /**
+     * Loss counts recorded by requests that have already ended.
+     *
+     * A web request dies on the terminate path, so the in-memory counter it
+     * increments never reaches Hone. The host application's cache carries the
+     * count to whichever later request manages a successful post. It is a
+     * best-effort diagnostic: concurrent posts can report the same count twice
+     * or drop it, and an application without a usable cache falls back to the
+     * in-memory counter.
+     */
+    private function carriedFailedDeliveryRecords(): int
+    {
+        if ($this->cache === null) {
+            return 0;
+        }
+
+        try {
+            return max(0, (int) $this->cache->get($this->lossCacheKey(), 0));
+        } catch (Throwable) {
+            return 0;
+        }
+    }
+
+    private function carryFailedDeliveryRecords(int $records): bool
+    {
+        if ($this->cache === null || $records <= 0) {
+            return false;
+        }
+
+        try {
+            return $this->cache->put($this->lossCacheKey(), $records, self::LOSS_CARRY_SECONDS) !== false;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function forgetCarriedFailedDeliveryRecords(int $records): void
+    {
+        if ($this->cache === null || $records <= 0) {
+            return;
+        }
+
+        try {
+            $this->cache->forget($this->lossCacheKey());
+        } catch (Throwable) {
+            // Fail open even if the host application's cache is unavailable.
+        }
+    }
+
+    private function lossCacheKey(): string
+    {
+        return 'hone-client:failed-delivery-records:'.sha1($this->app);
     }
 
     private function debug(string $message, Throwable $e): void

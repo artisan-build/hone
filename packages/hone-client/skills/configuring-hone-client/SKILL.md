@@ -34,7 +34,9 @@ URL** and an installation-owned **hone.ingest credential** issued by Built for C
    php artisan tinker --execute="echo get_class(app(\Laravel\Nightwatch\Core::class)->ingest);"
    ```
    Expect **`ArtisanBuild\HoneClient\HoneIngest`** (Hone's transport), not Nightwatch's default.
-4. **Set the deploy dimension** — at deploy time set `NIGHTWATCH_DEPLOY` to the short commit SHA
+4. **Check the deploy dimension.** On Laravel Cloud, Forge and Vapor the client sends the deploy
+   Nightwatch already resolved from the platform, so there is nothing to set. Anywhere else, set
+   `NIGHTWATCH_DEPLOY` to the short commit SHA at deploy time
    (`echo "NIGHTWATCH_DEPLOY=$(git rev-parse --short HEAD)" >> .env`) so Hone can compare releases.
 5. **Confirm receipt on the Hone side.** Generate traffic (serve a few requests / run a few `php artisan`
    commands — telemetry flushes on request/command **termination**), then query Hone over MCP: the

@@ -74,7 +74,7 @@ dimension, confirming receipt on the Hone server over MCP, and the common
 NIGHTWATCH_ENABLED=true                       # Nightwatch collects when enabled (the default)
 HONE_URL=https://hone.<client>.example/ingest
 HONE_TOKEN=<issued by your Hone app's registry>
-NIGHTWATCH_DEPLOY=<commit sha, set at deploy>
+NIGHTWATCH_DEPLOY=<commit sha, set at deploy; Cloud, Forge and Vapor are read automatically>
 # Optional tuning: console buffers flush every 60 seconds with 2s connect / 5s total timeouts.
 # HONE_FLUSH_INTERVAL=60
 # HONE_CONSOLE_CONNECT_TIMEOUT=2

@@ -7,8 +7,10 @@ use ArtisanBuild\HoneClient\HoneClientServiceProvider;
 use ArtisanBuild\HoneClient\HoneIngest;
 use ArtisanBuild\HoneClient\Http\Middleware\CaptureResponseContext;
 use ArtisanBuild\HoneContracts\Envelope;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Queue\Events\Looping;
@@ -83,6 +85,7 @@ function honeIngest(
     float $connectTimeout = 0.5,
     float $timeout = 0.5,
     ?LoggerInterface $logger = null,
+    ?CacheRepository $cache = null,
 ): HoneIngest {
     return new HoneIngest(
         url: 'https://hone.test/ingest',
@@ -97,7 +100,79 @@ function honeIngest(
         http: app(Factory::class),
         logger: $logger ?? app(LoggerInterface::class),
         nightwatch: (new ReflectionClass(Core::class))->newInstanceWithoutConstructor(),
+        cache: $cache,
     );
+}
+
+/**
+ * A logger that keeps every record so a test can assert on its level.
+ */
+function honeRecordingLogger(): LoggerInterface
+{
+    return new class extends AbstractLogger
+    {
+        /**
+         * @var list<array{level: string, message: string, context: array<string, mixed>}>
+         */
+        public array $records = [];
+
+        /**
+         * @param  array<string, mixed>  $context
+         */
+        public function log($level, string|Stringable $message, array $context = []): void
+        {
+            $this->records[] = ['level' => (string) $level, 'message' => (string) $message, 'context' => $context];
+        }
+
+        /**
+         * @return list<array{level: string, message: string, context: array<string, mixed>}>
+         */
+        public function recordsAtLevel(string $level): array
+        {
+            return array_values(array_filter($this->records, fn (array $record): bool => $record['level'] === $level));
+        }
+    };
+}
+
+/**
+ * Configure a Hone install the way a consuming application does, so the
+ * container builds the ingest through the service provider.
+ */
+function configureHoneConsumer(): void
+{
+    config()->set('hone.url', 'https://hone.test/ingest');
+    config()->set('hone.token', 'secret-token');
+    config()->set('hone.app', 'checkout');
+    config()->set('cache.default', 'array');
+
+    bindFakeNightwatchCore();
+}
+
+/**
+ * Fake the ingest endpoint, recording each envelope and timing out on the
+ * attempts named in $timeOutOnAttempts.
+ *
+ * @param  list<int>  $timeOutOnAttempts
+ * @param  array<string, mixed>  $envelopes
+ * @param  array<string, mixed>  $options
+ */
+function fakeHoneIngestEndpoint(array $timeOutOnAttempts, array &$envelopes, array &$options): void
+{
+    $attempt = 0;
+
+    Http::fake(function (Request $request, array $sent) use (&$attempt, &$envelopes, &$options, $timeOutOnAttempts) {
+        $attempt++;
+        $envelopes[] = $request->data();
+        $options = $sent;
+
+        if (in_array($attempt, $timeOutOnAttempts, true)) {
+            throw new ConnectionException(
+                'cURL error 28: Operation timed out after 500 milliseconds with 0 bytes received'
+            );
+        }
+
+        return Http::response([], 202);
+    });
 }
 
 it('rebinds nightwatch core ingest when url and token are configured', function (): void {
@@ -754,4 +829,159 @@ it('persists contracts major without nudging on first run', function (): void {
 
     expect($marker)->toBeFile()
         ->and((string) file_get_contents($marker))->toBe((string) Envelope::VERSION);
+});
+
+it('never drops a web batch silently when the ingest post times out', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([1], $envelopes, $options);
+
+    $logger = honeRecordingLogger();
+    $ingest = honeIngest(logger: $logger);
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->write(['t' => 'query', 'index' => 2]);
+    $ingest->digest();
+
+    $warnings = $logger->recordsAtLevel('warning');
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0]['message'])->toBe('Hone ingest delivery failed; dropped 2 telemetry records.')
+        ->and($warnings[0]['context']['dropped_records'])->toBe(2)
+        ->and($warnings[0]['context']['exception'])->toBeInstanceOf(ConnectionException::class)
+        ->and($logger->recordsAtLevel('debug'))->toBe([]);
+});
+
+it('gives a web ingest post the observed Hone latency as its budget', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([], $envelopes, $options);
+
+    // The suite always runs in console, so the web budget is taken from the
+    // shipped config the way the service provider takes it for a web request.
+    $ingest = honeIngest(
+        connectTimeout: (float) config('hone.connect_timeout'),
+        timeout: (float) config('hone.timeout'),
+    );
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->digest();
+
+    expect($envelopes)->toHaveCount(1)
+        ->and($options['timeout'])->toBe(2.5)
+        ->and($options['connect_timeout'])->toBe(0.5);
+});
+
+it('carries a dropped batch loss count to Hone in a later request', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([1], $envelopes, $options);
+
+    configureHoneConsumer();
+
+    $terminated = app(HoneIngest::class);
+    $terminated->write(['t' => 'query', 'index' => 1]);
+    $terminated->write(['t' => 'query', 'index' => 2]);
+    $terminated->digest();
+
+    unset($terminated);
+
+    $later = app(HoneIngest::class);
+    $later->write(['t' => 'query', 'index' => 3]);
+    $later->digest();
+
+    expect($envelopes)->toHaveCount(2)
+        ->and(array_column($envelopes[1]['records'], 'index'))->toBe([3])
+        ->and($envelopes[1])->toHaveKey('losses.overflow_dropped_records', 0)
+        ->and($envelopes[1])->toHaveKey('losses.failed_delivery_records', 2);
+});
+
+it('reports a carried loss count once', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([1], $envelopes, $options);
+
+    configureHoneConsumer();
+
+    $terminated = app(HoneIngest::class);
+    $terminated->write(['t' => 'query', 'index' => 1]);
+    $terminated->digest();
+
+    $later = app(HoneIngest::class);
+    $later->write(['t' => 'query', 'index' => 2]);
+    $later->digest();
+
+    $afterwards = app(HoneIngest::class);
+    $afterwards->write(['t' => 'query', 'index' => 3]);
+    $afterwards->digest();
+
+    expect($envelopes)->toHaveCount(3)
+        ->and($envelopes[1])->toHaveKey('losses.failed_delivery_records', 1)
+        ->and($envelopes[2])->not->toHaveKey('losses');
+});
+
+it('keeps a loss count in memory when the application has no usable cache', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([1], $envelopes, $options);
+
+    $ingest = honeIngest();
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->digest();
+    $ingest->write(['t' => 'query', 'index' => 2]);
+    $ingest->digest();
+
+    expect($envelopes)->toHaveCount(2)
+        ->and($envelopes[1]['losses'])->toBe([
+            'overflow_dropped_records' => 0,
+            'failed_delivery_records' => 1,
+        ]);
+});
+
+it('sends the deploy Nightwatch resolved when the install sets none of its own', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([], $envelopes, $options);
+
+    configureHoneConsumer();
+    config()->set('hone.deploy', null);
+    config()->set('nightwatch.deployment', 'cloud-deploy-uuid');
+
+    $ingest = app(HoneIngest::class);
+    $ingest->write(['t' => 'query']);
+    $ingest->digest();
+
+    expect($envelopes[0]['deploy'])->toBe('cloud-deploy-uuid');
+});
+
+it('prefers an explicit hone deploy over the one Nightwatch resolved', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([], $envelopes, $options);
+
+    configureHoneConsumer();
+    config()->set('hone.deploy', 'explicit-deploy');
+    config()->set('nightwatch.deployment', 'cloud-deploy-uuid');
+
+    $ingest = app(HoneIngest::class);
+    $ingest->write(['t' => 'query']);
+    $ingest->digest();
+
+    expect($envelopes[0]['deploy'])->toBe('explicit-deploy');
+});
+
+it('sends no deploy when neither hone nor nightwatch resolved one', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([], $envelopes, $options);
+
+    configureHoneConsumer();
+    config()->set('hone.deploy', null);
+    config()->set('nightwatch.deployment', null);
+
+    $ingest = app(HoneIngest::class);
+    $ingest->write(['t' => 'query']);
+    $ingest->digest();
+
+    expect($envelopes[0]['deploy'])->toBeNull();
 });

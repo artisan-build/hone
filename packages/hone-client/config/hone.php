@@ -10,7 +10,14 @@ return [
     'buffer' => (int) env('HONE_BUFFER', 500),
     'flush_interval' => (float) env('HONE_FLUSH_INTERVAL', 60),
     'connect_timeout' => (float) env('HONE_CONNECT_TIMEOUT', 0.5),
-    'timeout' => (float) env('HONE_TIMEOUT', 0.5),
+
+    /*
+     * The total budget for one ingest post from a web request. It runs on the
+     * terminate path, after the response has been sent, so it costs worker time
+     * rather than response time. Observed Hone ingest latency is ~0.6-0.8s on
+     * average with a p95 of ~1.7-2.2s, so 0.5s dropped most batches silently.
+     */
+    'timeout' => (float) env('HONE_TIMEOUT', 2.5),
     'console_connect_timeout' => (float) env('HONE_CONSOLE_CONNECT_TIMEOUT', env('HONE_CONNECT_TIMEOUT', 2.0)),
     'console_timeout' => (float) env('HONE_CONSOLE_TIMEOUT', env('HONE_TIMEOUT', 5.0)),
 ];

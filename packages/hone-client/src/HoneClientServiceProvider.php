@@ -7,6 +7,7 @@ namespace ArtisanBuild\HoneClient;
 use ArtisanBuild\HoneClient\Commands\InstallCommand;
 use ArtisanBuild\HoneClient\Commands\UpdateCommand;
 use ArtisanBuild\HoneClient\Http\Middleware\CaptureResponseContext;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Nightwatch\Core;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 final class HoneClientServiceProvider extends ServiceProvider
 {
@@ -36,7 +38,7 @@ final class HoneClientServiceProvider extends ServiceProvider
                 url: (string) config('hone.url'),
                 token: (string) config('hone.token'),
                 app: (string) config('hone.app'),
-                deploy: config('hone.deploy') === null ? null : (string) config('hone.deploy'),
+                deploy: $this->resolveDeploy(),
                 bufferLimit: (int) config('hone.buffer'),
                 flushInterval: (float) config('hone.flush_interval'),
                 runningInConsole: $runningInConsole,
@@ -45,8 +47,43 @@ final class HoneClientServiceProvider extends ServiceProvider
                 http: $app->make(Factory::class),
                 logger: $app->make(LoggerInterface::class),
                 nightwatch: $app->make(Core::class),
+                cache: $this->resolveCache($app),
             );
         });
+    }
+
+    /**
+     * The deploy marker Hone attributes telemetry to.
+     *
+     * Nightwatch already resolves a deploy from whichever platform the
+     * application runs on (Cloud, Forge, Vapor), so an installation that has
+     * not set one of its own inherits that rather than reporting no deploy at
+     * all. Reading Nightwatch's resolved config value rather than copying its
+     * environment chain means we inherit whatever it learns to read next.
+     */
+    private function resolveDeploy(): ?string
+    {
+        $deploy = config('hone.deploy');
+
+        if (blank($deploy)) {
+            $deploy = config('nightwatch.deployment');
+        }
+
+        return blank($deploy) ? null : (string) $deploy;
+    }
+
+    /**
+     * The cache a dropped batch's loss count waits in until a later request can
+     * carry it to Hone. An application without a usable cache keeps the count
+     * in memory, exactly as before.
+     */
+    private function resolveCache(Application $app): ?CacheRepository
+    {
+        try {
+            return $app->make(CacheRepository::class);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     public function boot(): void

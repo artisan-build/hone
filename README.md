@@ -640,8 +640,14 @@ puts the credential into your shell history and the process table. The installer
 `artisan-build/hone-client` to a caret major constraint in `composer.json`. You do **not** need a
 `NIGHTWATCH_TOKEN`.
 
-**Set `NIGHTWATCH_DEPLOY` in the source app so Hone can compare one release against another.** It is
-read from the runtime environment, so where you set it depends on where the app runs.
+**A source app on Laravel Cloud, Forge or Vapor gets its deploy marker without being asked.** The
+client sends whatever deploy Nightwatch resolved from the platform — `LARAVEL_CLOUD_DEPLOY_UUID`,
+`FORGE_DEPLOY_COMMIT` or `VAPOR_COMMIT_HASH` — so `deploys` and `regression_check` have releases to
+compare on those hosts with no configuration at all. Client releases before 1.7.1 read only
+`NIGHTWATCH_DEPLOY` and stored `deploy: null` on every record without it.
+
+Set `NIGHTWATCH_DEPLOY` yourself to name the deploy something else, or to get markers on a host that
+Nightwatch cannot read. It wins over the platform value when it is set.
 
 *For local development*, set it once in `.env`, by hand or with a replace-or-append snippet. Do not use
 a plain `>>`: that appends a second `NIGHTWATCH_DEPLOY=` line every time you run it, and the file ends
@@ -656,17 +662,9 @@ grep -q '^NIGHTWATCH_DEPLOY=' .env \
 
 (`sed -i ''` is the BSD/macOS form; on Linux use `sed -i`.)
 
-*For a deployed source app*, the value has to change on every release, so set it in that platform's
-environment rather than in a file you edit by hand. On Laravel Cloud, add it to the source app's build
-or deploy commands so each release writes its own SHA:
-
-```shell
-cloud environment:variables <source-env-id> --action set --key NIGHTWATCH_DEPLOY --value "$(git rev-parse --short HEAD)" -n --force
-```
-
-On any other host, set `NIGHTWATCH_DEPLOY` from your CI's commit variable (`$GITHUB_SHA`,
-`$CI_COMMIT_SHORT_SHA`, and so on) as part of the deploy. Leaving it unset is fine — deploy comparison
-is simply unavailable, and every record stores `deploy: null`.
+*On any other host*, set it from your CI's commit variable (`$GITHUB_SHA`, `$CI_COMMIT_SHORT_SHA`, and
+so on) as part of the deploy. Leaving it unset on such a host is fine — deploy comparison is simply
+unavailable, and every record stores `deploy: null`.
 
 **3. Prove it is actually connected.** The client is deliberately fail-open — it never breaks your app,
 and it never reports an error if it is inert — so a successful installer proves nothing on its own.
@@ -880,10 +878,10 @@ defaults shown.
 | `HONE_TOKEN` | *(none)* | **Required.** The app's `hone.ingest` credential. |
 | `HONE_APP` | `APP_NAME`, then `laravel` | The app identifier written into every envelope. Note that the server ignores it: stored rows are named from the credential's installation ref. It is transmitted, not authoritative. |
 | `NIGHTWATCH_ENABLED` | Nightwatch's own default | Nightwatch's collection switch. `hone:install` sets it to `true` if it is not already truthy. |
-| `NIGHTWATCH_DEPLOY` | *(none)* | The deploy identifier written into every envelope, usually a short commit SHA. This is the only place it does anything. |
+| `NIGHTWATCH_DEPLOY` | Nightwatch's resolved deploy | The deploy identifier written into every envelope, usually a short commit SHA. Unset, the client sends the deploy Nightwatch resolved from Laravel Cloud, Forge or Vapor. |
 | `HONE_BUFFER` | `500` | Records held in memory before the oldest are dropped. Hone drops rather than posting mid-request. |
 | `HONE_CONNECT_TIMEOUT` | `0.5` | Connect timeout in seconds; values below `0.05` are clamped to `0.05`. |
-| `HONE_TIMEOUT` | `0.5` | Request timeout in seconds; values below `0.05` are clamped to `0.05`. |
+| `HONE_TIMEOUT` | `2.5` | Total timeout in seconds for one web ingest post, which runs after the response has been sent; values below `0.05` are clamped to `0.05`. |
 
 The client turns itself on when **both** `HONE_URL` and `HONE_TOKEN` are set — there is no separate
 enable flag. Set exactly one of them and it stays inert and logs
