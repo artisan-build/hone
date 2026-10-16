@@ -22,6 +22,7 @@ use ArtisanBuild\HoneServer\Mcp\Tools\SlowRequestsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\TopUsersTool;
 use ArtisanBuild\HoneServer\Models\Aggregate;
 use ArtisanBuild\HoneServer\Models\RawEvent;
+use ArtisanBuild\HoneServer\Normalizer;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -151,6 +152,36 @@ it('returns generic query metrics over the requested window', function (): void 
         ->assertOk()
         ->assertSee('select-users-by-id')
         ->assertSee('40');
+});
+
+it('finds metrics for a long key by its original form and by its stored hashed form', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+    $longSql = 'select * from orders where reference in ('.str_repeat('?, ', 120).'?)';
+    $storedKey = Normalizer::keyFor('query', ['sql' => $longSql]);
+
+    expect(mb_strlen($longSql))->toBeGreaterThan(255);
+
+    seedAggregateBucket('checkout', 'query', $storedKey, $today, 10, 20, 50, 45, 49);
+
+    $window = app(AggregateWindow::class);
+
+    expect($window->metric('query', 'count', $longSql, 'checkout', null, 7))->toHaveCount(1)
+        ->and($window->metric('query', 'count', $storedKey, 'checkout', null, 7))->toHaveCount(1)
+        ->and($window->metric('query', 'count', $longSql, 'checkout', null, 7)[0]['normalized_key'])->toBe($storedKey);
+});
+
+it('compares deploys for a long key by its original form and by its stored hashed form', function (): void {
+    $today = Carbon::now('UTC')->startOfDay();
+    $longSql = 'select * from orders where reference in ('.str_repeat('?, ', 120).'?)';
+    $storedKey = Normalizer::keyFor('query', ['sql' => $longSql]);
+
+    seedAggregateBucket('checkout', 'query', $storedKey, $today->copy()->subDays(3), 10, 80, 100, 90, 99, 'old-deploy');
+    seedAggregateBucket('checkout', 'query', $storedKey, $today, 20, 30, 60, 50, 59, 'new-deploy');
+
+    $window = app(AggregateWindow::class);
+
+    expect($window->acrossDeploys('query', $longSql, 'p95', 'checkout', 5))->toHaveCount(2)
+        ->and($window->acrossDeploys('query', $storedKey, 'p95', 'checkout', 5))->toHaveCount(2);
 });
 
 it('returns regression checks per deploy ordered by recency', function (): void {

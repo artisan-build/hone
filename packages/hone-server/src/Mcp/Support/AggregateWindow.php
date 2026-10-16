@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneServer\Mcp\Support;
 
+use ArtisanBuild\HoneServer\Normalizer;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -99,6 +100,7 @@ final class AggregateWindow
     public function metric(string $recordType, string $metric, ?string $normalizedKey, ?string $app, ?string $deploy, int $days): array
     {
         $this->ensureMetric($metric);
+        $normalizedKey = $normalizedKey === null ? null : Normalizer::lookupKey($normalizedKey);
 
         return $this->combinedQuery($recordType, $days, $app, $deploy)
             ->addSelect('normalized_key')
@@ -121,6 +123,7 @@ final class AggregateWindow
     public function acrossDeploys(string $recordType, string $normalizedKey, string $metric, ?string $app, int $deploysLimit): array
     {
         $this->ensureMetric($metric);
+        $normalizedKey = Normalizer::lookupKey($normalizedKey);
 
         return $this->combinedQuery($recordType, null, $app, null)
             ->addSelect('deploy')

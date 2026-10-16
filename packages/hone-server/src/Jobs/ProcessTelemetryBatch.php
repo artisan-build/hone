@@ -12,12 +12,24 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
+use PDOException;
 use Throwable;
 
 final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEntry
 {
     private const INSERT_CHUNK_ROWS = 500;
+
+    /**
+     * The record types this server understands, including the compatibility
+     * aliases accepted by enrichment. Anything else is a client-controlled
+     * string and is logged as the literal 'custom'.
+     */
+    private const KNOWN_RECORD_TYPES = [
+        'request', 'http-request', 'query', 'queued-job', 'job-attempt',
+        'command', 'artisan-command', 'scheduled-task', 'scheduled',
+        'exception', 'outgoing-request', 'log', 'user', 'cache-event',
+        'unknown',
+    ];
 
     public ?string $connection = null;
 
@@ -49,7 +61,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
             try {
                 $rows[] = $this->rawEventRow($recordType, $record, $asnLookup);
             } catch (Throwable $e) {
-                $this->logPersistenceFailure($recordType, $e);
+                $this->logPersistenceFailure($recordType, $e, 'building the row failed');
             }
         }
 
@@ -102,7 +114,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
                 try {
                     $this->insertRows([$row]);
                 } catch (Throwable $e) {
-                    $this->logPersistenceFailure((string) $row['record_type'], $e);
+                    $this->logPersistenceFailure((string) $row['record_type'], $e, 'the telemetry database rejected the row');
                 }
             }
         }
@@ -116,7 +128,7 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
         $connection->transaction(fn (): bool => $connection->table('raw_events')->insert($rows));
     }
 
-    private function logPersistenceFailure(string $recordType, Throwable $exception): void
+    private function logPersistenceFailure(string $recordType, Throwable $exception, string $cause): void
     {
         $rootCause = $exception;
 
@@ -124,23 +136,24 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
             $rootCause = $rootCause->getPrevious();
         }
 
-        // Only the first line: Postgres puts the failing row's values on DETAIL
-        // lines, and record values must never reach the log.
-        $firstLine = strstr($rootCause->getMessage(), "\n", true);
-        $message = Str::limit((string) preg_replace(
-            '/\s+/',
-            ' ',
-            $firstLine === false ? $rootCause->getMessage() : $firstLine,
-        ), 1000, '');
+        // Exception messages carry database-bound record values (Postgres puts
+        // them in DETAIL lines and in some primary messages), and the record
+        // type is client-controlled, so the log holds only structured
+        // metadata: no message text, and only known record types.
+        $safeType = in_array($recordType, self::KNOWN_RECORD_TYPES, true) ? $recordType : 'custom';
+        $sqlState = $rootCause instanceof PDOException && is_string($rootCause->errorInfo[0] ?? null)
+            ? $rootCause->errorInfo[0]
+            : null;
 
         Log::warning(sprintf(
-            'Failed to persist Hone telemetry record (%s); %s: %s',
-            $recordType,
+            'Failed to persist Hone telemetry record (%s); %s; %s%s',
+            $safeType,
+            $cause,
             $rootCause::class,
-            $message,
+            $sqlState === null ? '' : sprintf(' SQLSTATE[%s]', $sqlState),
         ), [
             'app' => $this->app,
-            'record_type' => $recordType,
+            'record_type' => $safeType,
         ]);
     }
 

@@ -13,6 +13,18 @@ final class Normalizer
      */
     private const MAX_KEY_CHARACTERS = 255;
 
+    private const HASH_ALGORITHM = 'sha256';
+
+    private const HASH_CHARACTERS = 64;
+
+    private const PREFIX_CHARACTERS = self::MAX_KEY_CHARACTERS - self::HASH_CHARACTERS - 1;
+
+    /**
+     * Exactly the canonical hashed form and nothing else: a 190-character
+     * prefix, '#', and 64 lowercase hex digits — 255 characters in total.
+     */
+    private const HASHED_FORM_PATTERN = '/^.{'.self::PREFIX_CHARACTERS.'}#[0-9a-f]{'.self::HASH_CHARACTERS.'}$/su';
+
     /**
      * @param  array<string, mixed>  $record
      */
@@ -32,24 +44,44 @@ final class Normalizer
             default => $recordType,
         };
 
-        return self::bounded(self::fallback($key, $recordType));
+        return self::canonicalize(self::fallback($key, $recordType));
     }
 
     /**
-     * Keys at or under the column limit pass through byte-identical, so
-     * existing aggregates keep grouping with new data. Longer keys become a
-     * readable prefix plus a hash of the full key, so equal inputs still
+     * The canonical stored form of a key. Keys at or under the column limit
+     * pass through byte-identical — with one reserved-namespace exception —
+     * so existing aggregates keep grouping with new data. Longer keys become
+     * a readable prefix plus a hash of the full key, so equal inputs still
      * produce equal keys and two different long keys never share one.
+     *
+     * The exception keeps the two output sets disjoint: every hashed output
+     * matches HASHED_FORM_PATTERN and no unchanged output does. A short key
+     * that itself matches the pattern (which no real telemetry key does) is
+     * re-keyed through the same hash instead of passing through, where it
+     * would collide with the hashed form of some long key.
      */
-    private static function bounded(string $key): string
+    public static function canonicalize(string $key): string
     {
-        if (mb_strlen($key) <= self::MAX_KEY_CHARACTERS) {
+        if (mb_strlen($key) <= self::MAX_KEY_CHARACTERS && ! self::isHashedForm($key)) {
             return $key;
         }
 
-        $hash = hash('sha256', $key);
+        return mb_substr($key, 0, self::PREFIX_CHARACTERS).'#'.hash(self::HASH_ALGORITHM, $key);
+    }
 
-        return mb_substr($key, 0, self::MAX_KEY_CHARACTERS - strlen($hash) - 1).'#'.$hash;
+    /**
+     * Resolve a caller-supplied key for lookups. A key already in the hashed
+     * form came from a listing tool and is matched as-is; anything else is an
+     * original normalized form and maps to its stored canonical form.
+     */
+    public static function lookupKey(string $key): string
+    {
+        return self::isHashedForm($key) ? $key : self::canonicalize($key);
+    }
+
+    private static function isHashedForm(string $key): bool
+    {
+        return preg_match(self::HASHED_FORM_PATTERN, $key) === 1;
     }
 
     private static function string(mixed $value): string

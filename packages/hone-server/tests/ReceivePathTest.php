@@ -286,10 +286,51 @@ it('falls back around a rejected row and logs the record type and cause without 
 
     Log::shouldHaveReceived('warning')
         ->once()
-        ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'Failed to persist Hone telemetry record (query); PDOException:')
-            && str_contains($message, 'raw_events_reject_queries')
+        ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'Failed to persist Hone telemetry record (query); the telemetry database rejected the row; PDOException SQLSTATE[23514]')
+            && ! str_contains($message, 'raw_events_reject_queries')
             && ! str_contains($message, 'secret_value')
             && $context['record_type'] === 'query');
+});
+
+it('does not log database-bound row values that Postgres puts in its primary error line', function (): void {
+    Log::spy();
+
+    (new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: null,
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [
+            ['t' => 'query', 'sql' => 'select 1', 'timestamp' => 10000000000000000],
+        ],
+    ))->handle(resolve(AsnLookup::class));
+
+    expect(RawEvent::query()->count())->toBe(0);
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'Failed to persist Hone telemetry record (query)')
+            && str_contains($message, 'SQLSTATE[22008]')
+            && ! str_contains($message, '318857-05-20 17:46:40')
+            && $context['record_type'] === 'query');
+});
+
+it('logs unrecognized client record types as custom', function (): void {
+    Log::spy();
+
+    (new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: null,
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [
+            ['t' => str_repeat('custom-type', 30)],
+        ],
+    ))->handle(resolve(AsnLookup::class));
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'Failed to persist Hone telemetry record (custom)')
+            && ! str_contains($message, 'custom-type')
+            && $context['record_type'] === 'custom');
 });
 
 it('processes telemetry jobs serialized before loss counters were added', function (): void {
@@ -655,6 +696,39 @@ it('bounds over-length keys deterministically without colliding on a shared pref
         ->and($first)->not->toBe($second)
         ->and($first)->toStartWith('select * from orders where ')
         ->and(Normalizer::keyFor('query', ['sql' => $sharedPrefix.' and status = 1']))->toBe($first);
+});
+
+it('re-keys a short key shaped like the hashed form so it cannot collide with a long key', function (): void {
+    $longSql = 'select 1 -- '.str_repeat('x', 300);
+    $storedKey = Normalizer::keyFor('query', ['sql' => $longSql]);
+
+    // A client whose literal 255-char SQL equals the stored hashed form of some
+    // long key lands in the reserved namespace and is re-keyed, so the two
+    // inputs keep distinct identities.
+    $rekeyed = Normalizer::keyFor('query', ['sql' => $storedKey]);
+
+    expect(mb_strlen($storedKey))->toBe(255)
+        ->and($rekeyed)->not->toBe($storedKey)
+        ->and(mb_strlen($rekeyed))->toBe(255)
+        ->and(Normalizer::keyFor('query', ['sql' => $storedKey]))->toBe($rekeyed);
+});
+
+it('keeps a long SQL key distinct from an identical-looking short SQL key through to aggregates', function (): void {
+    $longSql = 'select 1 -- '.str_repeat('x', 300);
+    $shortSql = Normalizer::keyFor('query', ['sql' => $longSql]);
+
+    (new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: null,
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [
+            ['t' => 'query', 'sql' => $longSql],
+            ['t' => 'query', 'sql' => $shortSql],
+        ],
+    ))->handle(resolve(AsnLookup::class));
+
+    expect(RawEvent::query()->count())->toBe(2)
+        ->and(RawEvent::query()->distinct('normalized_key')->count())->toBe(2);
 });
 
 it('bounds every record type key to 255 characters', function (string $recordType, array $record): void {
