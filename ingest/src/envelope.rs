@@ -210,7 +210,7 @@ fn php_float_to_integer(value: f64) -> i64 {
 }
 
 fn php_numeric_string_integer(value: &str) -> Option<i64> {
-    let value = value.trim();
+    let value = value.trim_matches(is_php_numeric_whitespace);
     let prefix_length = numeric_prefix_length(value)?;
     if prefix_length != value.len() {
         return None;
@@ -220,10 +220,17 @@ fn php_numeric_string_integer(value: &str) -> Option<i64> {
 }
 
 fn php_leading_numeric_integer(value: &str) -> i64 {
-    let value = value.trim_start();
+    let value = value.trim_start_matches(is_php_numeric_whitespace);
     numeric_prefix_length(value)
         .map(|length| cast_numeric_string(&value[..length]))
         .unwrap_or_default()
+}
+
+fn is_php_numeric_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        ' ' | '\t' | '\n' | '\r' | '\u{000B}' | '\u{000C}'
+    )
 }
 
 fn cast_numeric_string(value: &str) -> i64 {
@@ -390,6 +397,28 @@ mod tests {
             php_numeric_string_integer("-9223372036854775809"),
             Some(i64::MIN)
         );
+    }
+
+    #[test]
+    fn numeric_strings_use_php_ascii_whitespace_only() {
+        assert_eq!(
+            version_from(&json!({"envelope_version": "\u{000C}1\t"})),
+            Ok(1)
+        );
+        assert_eq!(
+            version_from(&json!({"envelope_version": "\u{00A0}1"})),
+            Err(EnvelopeError(
+                "Envelope is missing a numeric \"envelope_version\".".to_string()
+            ))
+        );
+
+        let envelope = from_value(&json!({
+            "envelope_version": 1,
+            "app": "checkout",
+            "losses": {"overflow_dropped_records": "\u{00A0}4"}
+        }))
+        .unwrap();
+        assert_eq!(envelope.overflow_dropped_records, 0);
     }
 
     #[test]

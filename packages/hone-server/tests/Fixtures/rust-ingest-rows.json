@@ -254,6 +254,145 @@
             "time": "2026-06-09T12:00:25Z"
         },
         {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-empty-port-example",
+            "user": "",
+            "host": "Example.COM:",
+            "time": "2026-06-09T12:00:26Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-empty-port",
+            "user": "",
+            "host": "host:",
+            "time": "2026-06-09T12:00:27Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-repeated-port",
+            "user": "",
+            "host": "host:80:90",
+            "time": "2026-06-09T12:00:28Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-malformed-bracket",
+            "user": "",
+            "host": "[::1]x",
+            "time": "2026-06-09T12:00:29Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-newline",
+            "user": "",
+            "host": "a\nb.example",
+            "time": "2026-06-09T12:00:30Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-zero-padded-port",
+            "user": "",
+            "host": "x:000080",
+            "time": "2026-06-09T12:00:31Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-uppercase-idn-bucher",
+            "user": "",
+            "host": "BÜCHER.example",
+            "time": "2026-06-09T12:00:32Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-uppercase-idn-gu",
+            "user": "",
+            "host": "ĞÜ.com",
+            "time": "2026-06-09T12:00:33Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-normal-port",
+            "user": "",
+            "host": "Example.COM:80",
+            "time": "2026-06-09T12:00:34Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-fragment",
+            "user": "",
+            "host": "Example.COM#fragment",
+            "time": "2026-06-09T12:00:35Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/host-invalid-range-port",
+            "user": "",
+            "host": "example.test:65536",
+            "time": "2026-06-09T12:00:36Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/null-direct-headers",
+            "user": "",
+            "ip": "8.8.8.8",
+            "headers": {
+                "User-Agent": null,
+                "Host": null,
+                "CF-Connecting-IP": null
+            },
+            "time": "2026-06-09T12:00:37Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/null-array-headers",
+            "user": "",
+            "ip": "8.8.8.8",
+            "headers": {
+                "User-Agent": [
+                    null
+                ],
+                "Host": [
+                    null
+                ],
+                "CF-Connecting-IP": [
+                    null
+                ]
+            },
+            "time": "2026-06-09T12:00:38Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/null-object-headers",
+            "user": "",
+            "ip": "8.8.8.8",
+            "headers": {
+                "User-Agent": {
+                    "0": null
+                },
+                "Host": {
+                    "0": null
+                },
+                "CF-Connecting-IP": {
+                    "0": null
+                }
+            },
+            "time": "2026-06-09T12:00:39Z"
+        },
+        {
             "t": "query",
             "sql": "sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω ",
             "time": "2026-06-09T12:00:18Z"
@@ -1014,6 +1153,321 @@
             "user_agent": "numeric-object-agent",
             "client_ip": "1.1.1.1",
             "asn": 13335
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:26.000000Z",
+            "normalized_key": "GET /host-empty-port-example",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "Example.COM:",
+                "time": "2026-06-09T12:00:26Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-empty-port-example"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-empty-port-example",
+            "request_host": "example.com",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:27.000000Z",
+            "normalized_key": "GET /host-empty-port",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "host:",
+                "time": "2026-06-09T12:00:27Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-empty-port"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-empty-port",
+            "request_host": "host",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:28.000000Z",
+            "normalized_key": "GET /host-repeated-port",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "host:80:90",
+                "time": "2026-06-09T12:00:28Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-repeated-port"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-repeated-port",
+            "request_host": "host:80",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:29.000000Z",
+            "normalized_key": "GET /host-malformed-bracket",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "[::1]x",
+                "time": "2026-06-09T12:00:29Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-malformed-bracket"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-malformed-bracket",
+            "request_host": "[:",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:30.000000Z",
+            "normalized_key": "GET /host-newline",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "a\nb.example",
+                "time": "2026-06-09T12:00:30Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-newline"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-newline",
+            "request_host": "a_b.example",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:31.000000Z",
+            "normalized_key": "GET /host-zero-padded-port",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "x:000080",
+                "time": "2026-06-09T12:00:31Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-zero-padded-port"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-zero-padded-port",
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:34.000000Z",
+            "normalized_key": "GET /host-normal-port",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "Example.COM:80",
+                "time": "2026-06-09T12:00:34Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-normal-port"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-normal-port",
+            "request_host": "example.com",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:35.000000Z",
+            "normalized_key": "GET /host-fragment",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "Example.COM#fragment",
+                "time": "2026-06-09T12:00:35Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-fragment"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-fragment",
+            "request_host": "example.com",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:36.000000Z",
+            "normalized_key": "GET /host-invalid-range-port",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "example.test:65536",
+                "time": "2026-06-09T12:00:36Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/host-invalid-range-port"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/host-invalid-range-port",
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:37.000000Z",
+            "normalized_key": "GET /null-direct-headers",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "ip": "8.8.8.8",
+                "time": "2026-06-09T12:00:37Z",
+                "user": "",
+                "method": "GET",
+                "headers": {
+                    "Host": null,
+                    "User-Agent": null,
+                    "CF-Connecting-IP": null
+                },
+                "route_path": "/null-direct-headers"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/null-direct-headers",
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": "8.8.8.8",
+            "asn": 15169
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:38.000000Z",
+            "normalized_key": "GET /null-array-headers",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "ip": "8.8.8.8",
+                "time": "2026-06-09T12:00:38Z",
+                "user": "",
+                "method": "GET",
+                "headers": {
+                    "Host": [
+                        null
+                    ],
+                    "User-Agent": [
+                        null
+                    ],
+                    "CF-Connecting-IP": [
+                        null
+                    ]
+                },
+                "route_path": "/null-array-headers"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/null-array-headers",
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": "8.8.8.8",
+            "asn": 15169
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:39.000000Z",
+            "normalized_key": "GET /null-object-headers",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "ip": "8.8.8.8",
+                "time": "2026-06-09T12:00:39Z",
+                "user": "",
+                "method": "GET",
+                "headers": {
+                    "Host": [
+                        null
+                    ],
+                    "User-Agent": [
+                        null
+                    ],
+                    "CF-Connecting-IP": [
+                        null
+                    ]
+                },
+                "route_path": "/null-object-headers"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/null-object-headers",
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": "8.8.8.8",
+            "asn": 15169
         },
         {
             "app": "checkout",

@@ -29,12 +29,14 @@ pub struct RawEventRow {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RowBuildError {
+    InvalidRequestHostEncoding,
     TimestampOutOfRange,
 }
 
 impl RowBuildError {
     pub fn category(self) -> &'static str {
         match self {
+            Self::InvalidRequestHostEncoding => "invalid_request_host_encoding",
             Self::TimestampOutOfRange => "timestamp_out_of_range",
         }
     }
@@ -68,7 +70,7 @@ pub fn build_row(
     }
 
     let record_type = record_type(record);
-    let enrichment = enrichment(&record_type, record, asn_lookup);
+    let enrichment = enrichment(&record_type, record, asn_lookup)?;
     let occurred_at = occurred_at(record, sent_at)?;
     let response = enrichment.response.as_ref().map(php_json_value);
 
@@ -242,7 +244,11 @@ struct Enrichment {
     client_ip: Option<String>,
 }
 
-fn enrichment(record_type: &str, record: &Value, _asn_lookup: &AsnLookup) -> Enrichment {
+fn enrichment(
+    record_type: &str,
+    record: &Value,
+    _asn_lookup: &AsnLookup,
+) -> Result<Enrichment, RowBuildError> {
     let execution_type = record_type.to_lowercase().replace('_', "-");
     let actor = match execution_type.as_str() {
         "request" | "http-request" => {
@@ -255,7 +261,7 @@ fn enrichment(record_type: &str, record: &Value, _asn_lookup: &AsnLookup) -> Enr
         "scheduled-task" | "scheduled" => "scheduled",
         "job-attempt" => "job",
         "command" | "artisan-command" => "command",
-        _ => return Enrichment::default(),
+        _ => return Ok(Enrichment::default()),
     };
 
     let is_request = matches!(execution_type.as_str(), "request" | "http-request");
@@ -268,7 +274,13 @@ fn enrichment(record_type: &str, record: &Value, _asn_lookup: &AsnLookup) -> Enr
         .then(|| client_ip(record, headers.as_ref()))
         .flatten();
 
-    Enrichment {
+    let request_host = if is_request {
+        request_host(record, headers.as_ref())?
+    } else {
+        None
+    };
+
+    Ok(Enrichment {
         actor: Some(actor.to_string()),
         ran_queries: boolean_value(
             record,
@@ -284,9 +296,7 @@ fn enrichment(record_type: &str, record: &Value, _asn_lookup: &AsnLookup) -> Enr
         request_path: is_request
             .then(|| first_scalar(record, &["route_path", "route", "uri"]))
             .flatten(),
-        request_host: is_request
-            .then(|| request_host(record, headers.as_ref()))
-            .flatten(),
+        request_host,
         user_agent: (actor == "guest")
             .then(|| {
                 first_scalar(record, &["user_agent", "userAgent"])
@@ -294,7 +304,7 @@ fn enrichment(record_type: &str, record: &Value, _asn_lookup: &AsnLookup) -> Enr
             })
             .flatten(),
         client_ip,
-    }
+    })
 }
 
 fn has_authenticated_user(record: &Value) -> bool {
@@ -416,41 +426,93 @@ fn client_ip(record: &Value, headers: Option<&Value>) -> Option<String> {
     .filter(|value| value.parse::<IpAddr>().is_ok())
 }
 
-fn request_host(record: &Value, headers: Option<&Value>) -> Option<String> {
-    let host = first_scalar(record, &["host", "hostname"]).or_else(|| header(headers, "host"))?;
-    let authority = host.split(['/', '?', '#']).next()?.rsplit('@').next()?;
-    let hostname = if authority.starts_with('[') {
-        let closing_bracket = authority.find(']')?;
-        let suffix = &authority[closing_bracket + 1..];
-        if !valid_port_suffix(suffix) {
-            return None;
-        }
-        authority[..=closing_bracket].to_string()
-    } else if let Some((hostname, port)) = authority.rsplit_once(':') {
-        if hostname.contains(':') || !valid_port_suffix(&format!(":{port}")) {
-            return None;
-        }
-        hostname.to_string()
-    } else {
-        authority.to_string()
+fn request_host(record: &Value, headers: Option<&Value>) -> Result<Option<String>, RowBuildError> {
+    let Some(host) =
+        first_scalar(record, &["host", "hostname"]).or_else(|| header(headers, "host"))
+    else {
+        return Ok(None);
     };
-    let hostname = hostname.to_lowercase();
-    let hostname = hostname.trim_end_matches('.');
+    let Some(mut hostname) = php_parse_url_host(host.as_bytes()) else {
+        return Ok(None);
+    };
 
-    (!hostname.is_empty()).then(|| hostname.to_string())
+    for byte in &mut hostname {
+        if (0x00..=0x1f).contains(byte) || (0x7f..=0x9f).contains(byte) {
+            *byte = b'_';
+        } else {
+            byte.make_ascii_lowercase();
+        }
+    }
+    while hostname.last() == Some(&b'.') {
+        hostname.pop();
+    }
+    if hostname.is_empty() {
+        return Ok(None);
+    }
+
+    String::from_utf8(hostname)
+        .map(Some)
+        .map_err(|_| RowBuildError::InvalidRequestHostEncoding)
 }
 
-fn valid_port_suffix(suffix: &str) -> bool {
-    if suffix.is_empty() {
-        return true;
+fn php_parse_url_host(host: &[u8]) -> Option<Vec<u8>> {
+    let authority_end = host
+        .iter()
+        .position(|byte| matches!(byte, b'/' | b'?' | b'#'))
+        .unwrap_or(host.len());
+    let authority = &host[..authority_end];
+    let authority = authority
+        .iter()
+        .rposition(|byte| *byte == b'@')
+        .map(|position| &authority[position + 1..])
+        .unwrap_or(authority);
+    if authority.is_empty() {
+        return None;
     }
-    let Some(port) = suffix.strip_prefix(':') else {
-        return false;
+
+    if authority.first() == Some(&b'[')
+        && let Some(closing_bracket) = authority.iter().position(|byte| *byte == b']')
+        && (closing_bracket + 1 == authority.len()
+            || authority.get(closing_bracket + 1) == Some(&b':'))
+    {
+        let port = if closing_bracket + 1 == authority.len() {
+            &[][..]
+        } else {
+            &authority[closing_bracket + 2..]
+        };
+        return php_url_port_is_valid(port).then(|| authority[..=closing_bracket].to_vec());
     };
 
-    !port.is_empty()
-        && port.bytes().all(|byte| byte.is_ascii_digit())
-        && port.parse::<u16>().is_ok()
+    let Some(colon) = authority.iter().rposition(|byte| *byte == b':') else {
+        return Some(authority.to_vec());
+    };
+    php_url_port_is_valid(&authority[colon + 1..]).then(|| authority[..colon].to_vec())
+}
+
+fn php_url_port_is_valid(port: &[u8]) -> bool {
+    if port.is_empty() {
+        return true;
+    }
+    if port.len() > 5 {
+        return false;
+    }
+
+    let mut index = 0;
+    while port.get(index).is_some_and(u8::is_ascii_whitespace) {
+        index += 1;
+    }
+    let negative = port.get(index) == Some(&b'-');
+    if matches!(port.get(index), Some(b'+') | Some(b'-')) {
+        index += 1;
+    }
+    let digits_start = index;
+    let mut value = 0_u32;
+    while let Some(byte) = port.get(index).filter(|byte| byte.is_ascii_digit()) {
+        value = value * 10 + u32::from(*byte - b'0');
+        index += 1;
+    }
+
+    index > digits_start && !negative && value <= u32::from(u16::MAX)
 }
 
 fn header(headers: Option<&Value>, name: &str) -> Option<String> {
@@ -466,9 +528,7 @@ fn header(headers: Option<&Value>, name: &str) -> Option<String> {
         };
 
         return value
-            .filter(|value| {
-                value.is_null() || value.is_boolean() || value.is_number() || value.is_string()
-            })
+            .filter(|value| value.is_boolean() || value.is_number() || value.is_string())
             .map(|value| php_trim(&php_scalar_string(Some(value))));
     }
 
@@ -654,6 +714,80 @@ mod tests {
                 "non_list": {"1": "b"}
             })
         );
+    }
+
+    #[test]
+    fn matches_php_request_host_boundary_outcomes() {
+        for (host, expected) in [
+            ("Example.COM:", Some("example.com")),
+            ("host:", Some("host")),
+            ("host:80:90", Some("host:80")),
+            ("[::1]x", Some("[:")),
+            ("a\nb.example", Some("a_b.example")),
+            ("x:000080", None),
+            ("bücher.example", Some("bücher.example")),
+            ("127.1", Some("127.1")),
+            ("Example.COM:443", Some("example.com")),
+            ("Example.COM?x=1", Some("example.com")),
+            ("Example.COM#fragment", Some("example.com")),
+            ("example.test:bad", None),
+            ("example.test:65536", None),
+        ] {
+            let row = build_row(
+                "checkout",
+                None,
+                "2026-06-09T12:00:00Z",
+                &json!({"t": "request", "host": host, "user": ""}),
+                &AsnLookup::default(),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(row.request_host.as_deref(), expected, "{host:?}");
+        }
+
+        for host in ["BÜCHER.example", "ĞÜ.com"] {
+            assert!(
+                matches!(
+                    build_row(
+                        "checkout",
+                        None,
+                        "2026-06-09T12:00:00Z",
+                        &json!({"t": "request", "host": host, "user": ""}),
+                        &AsnLookup::default(),
+                    ),
+                    Err(RowBuildError::InvalidRequestHostEncoding)
+                ),
+                "{host:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn null_header_values_remain_null() {
+        for value in [json!(null), json!([null]), json!({"0": null})] {
+            let row = build_row(
+                "checkout",
+                None,
+                "2026-06-09T12:00:00Z",
+                &json!({
+                    "t": "request",
+                    "user": "",
+                    "ip": "8.8.8.8",
+                    "headers": {
+                        "User-Agent": value,
+                        "Host": value,
+                        "CF-Connecting-IP": value
+                    }
+                }),
+                &AsnLookup::default(),
+            )
+            .unwrap()
+            .unwrap();
+
+            assert_eq!(row.user_agent, None);
+            assert_eq!(row.request_host, None);
+            assert_eq!(row.client_ip.as_deref(), Some("8.8.8.8"));
+        }
     }
 
     #[test]

@@ -345,22 +345,60 @@ impl Authenticator {
     }
 
     async fn record_subsequent_use(&self, credential_id: Uuid) -> Result<bool, SafeDatabaseError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+        let credential_exists =
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM credentials WHERE id = $1 FOR UPDATE")
+                .bind(credential_id)
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?
+                .is_some();
+        if !credential_exists {
+            transaction
+                .rollback()
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+
+            return Ok(false);
+        }
+
+        let now: NaiveDateTime = sqlx::query_scalar("SELECT clock_timestamp() AT TIME ZONE 'UTC'")
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
         let affected = sqlx::query(
             r#"
             UPDATE credentials
-            SET last_used_at = clock_timestamp() AT TIME ZONE 'UTC',
-                updated_at = clock_timestamp() AT TIME ZONE 'UTC'
+            SET last_used_at = $2,
+                updated_at = $2
             WHERE id = $1
               AND status = 'active'
               AND revoked_at IS NULL
-              AND (expires_at IS NULL OR expires_at > clock_timestamp() AT TIME ZONE 'UTC')
+              AND (expires_at IS NULL OR expires_at > $2)
             "#,
         )
         .bind(credential_id)
-        .execute(&self.pool)
+        .bind(now)
+        .execute(&mut *transaction)
         .await
         .map_err(|error| SafeDatabaseError::from_sqlx(&error))?
         .rows_affected();
+
+        if affected == 1 {
+            transaction
+                .commit()
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+        } else {
+            transaction
+                .rollback()
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+        }
 
         Ok(affected == 1)
     }
@@ -944,6 +982,81 @@ mod tests {
             .execute(&database.pool)
             .await
             .unwrap();
+        holder.commit().await.unwrap();
+
+        assert_eq!(authorization.await.unwrap().unwrap(), None);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM credential_audit_events")
+                .fetch_one(&database.pool)
+                .await
+                .unwrap(),
+            0
+        );
+        database.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn expiry_during_a_subsequent_use_lock_wait_fails_against_release_time() {
+        let database = TestDatabase::new().await;
+        let credential = database
+            .insert_credential("secret", Some(Utc::now() + ChronoDuration::hours(1)))
+            .await;
+        sqlx::query(
+            "UPDATE credentials SET last_used_at = now(), expires_at = date_trunc('second', clock_timestamp() AT TIME ZONE 'UTC') + interval '2 seconds' WHERE id = $1",
+        )
+        .bind(credential)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+        let mut holder = database.pool.begin().await.unwrap();
+        sqlx::query("SELECT id FROM credentials WHERE id = $1 FOR UPDATE")
+            .bind(credential)
+            .fetch_one(&mut *holder)
+            .await
+            .unwrap();
+
+        let hooks = Arc::new(AuthTestHooks {
+            pause_after_resolution: false,
+            resolution_reached: Semaphore::new(0),
+            resolution_release: Semaphore::new(0),
+            pause_after_first_code_lock: false,
+            code_lock_attempted: Semaphore::new(0),
+            code_lock_count: std::sync::atomic::AtomicUsize::new(0),
+            first_code_lock_reached: Semaphore::new(0),
+            first_code_lock_release: Semaphore::new(0),
+            credential_lock_attempted: Semaphore::new(0),
+        });
+        let authenticator =
+            Authenticator::new(database.pool.clone(), 0, context()).with_test_hooks(hooks.clone());
+        let authorization = tokio::spawn(async move { authenticator.authorize("secret").await });
+
+        hooks.resolution_reached.acquire().await.unwrap().forget();
+        database
+            .wait_for_lock("SELECT id FROM credentials WHERE id")
+            .await;
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT expires_at > clock_timestamp() AT TIME ZONE 'UTC' FROM credentials WHERE id = $1"
+            )
+            .bind(credential)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap()
+        );
+        sqlx::query("SELECT pg_sleep(2.1)")
+            .execute(&database.pool)
+            .await
+            .unwrap();
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT expires_at <= clock_timestamp() AT TIME ZONE 'UTC' FROM credentials WHERE id = $1"
+            )
+            .bind(credential)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap()
+        );
         holder.commit().await.unwrap();
 
         assert_eq!(authorization.await.unwrap().unwrap(), None);

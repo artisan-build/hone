@@ -274,6 +274,10 @@ mod tests {
                 "Envelope is missing a numeric \"envelope_version\".",
             ),
             (
+                r#"{"envelope_version":"\u00a01","app":"x"}"#,
+                "Envelope is missing a numeric \"envelope_version\".",
+            ),
+            (
                 r#"{"envelope_version":2,"app":"x"}"#,
                 "Envelope v2 is newer than this Hone server (max v1). Upgrade your Hone app.",
             ),
