@@ -40,7 +40,8 @@
         }
     },
     "scripts": {
-        "test": "pest",
+        "test": "pest --exclude-group=rust-ingest-parity",
+        "test:parity": "pest --group=rust-ingest-parity --fail-on-skipped --fail-on-empty-test-suite",
         "lint": "pint",
         "lint:test": "pint --test"
     },

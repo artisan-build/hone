@@ -13,6 +13,7 @@ use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Normalizer;
 use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
+use ArtisanBuild\HoneServer\Tests\Support\ReceivePathCorpus;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -201,10 +202,7 @@ it('processes telemetry batches into raw events', function (): void {
         app: 'checkout',
         deploy: 'abc123',
         sentAt: '2026-06-09T12:00:00+00:00',
-        records: [
-            ['t' => 'query', 'sql' => 'select * from users where id = ?', 'duration' => 12_000, 'timestamp' => '2026-06-09T12:00:01+00:00'],
-            ['t' => 'request', 'method' => 'GET', 'route' => '/', 'duration_ms' => 34, 'ts' => 1781006402000],
-        ],
+        records: ReceivePathCorpus::basicRecords(),
     );
 
     $job->handle(resolve(AsnLookup::class));
@@ -399,48 +397,7 @@ it('accumulates client loss counters per token app and deploy', function (): voi
 });
 
 it('enriches real Nightwatch request records without changing their opaque payloads', function (): void {
-    $records = [
-        [
-            'v' => 1,
-            't' => 'request',
-            'method' => 'GET',
-            'route_path' => '/',
-            'user' => '',
-            'queries' => 1,
-            'ip' => '8.8.8.8',
-            'headers' => json_encode([
-                'CF-Connecting-IP' => ['1.1.1.1'],
-                'Host' => ['checkout.example.com:443'],
-                'User-Agent' => ['Mozilla/5.0'],
-            ], JSON_THROW_ON_ERROR),
-            'context' => json_encode([
-                'hone.response' => [
-                    'status' => 200,
-                    'content_type' => 'text/html; charset=UTF-8',
-                    'cache_control' => 'no-cache, private',
-                ],
-            ], JSON_THROW_ON_ERROR),
-        ],
-        [
-            'v' => 1,
-            't' => 'request',
-            'method' => 'GET',
-            'route_path' => '/static',
-            'user' => '',
-            'queries' => 0,
-            'ip' => '1.1.1.1',
-            'headers' => ['user-agent' => 'curl/8.0'],
-        ],
-        [
-            'v' => 1,
-            't' => 'request',
-            'method' => 'GET',
-            'route_path' => '/dashboard',
-            'queries' => 2,
-            'user' => '42',
-            'ip' => '1.1.1.1',
-        ],
-    ];
+    $records = ReceivePathCorpus::requestRecords();
     $job = new ProcessTelemetryBatch('checkout', 'abc123', '2026-06-09T12:00:00+00:00', $records);
 
     $job->handle(new IptoAsnLookup(__DIR__.'/Fixtures/ip2asn.tsv'));
@@ -473,12 +430,7 @@ it('classifies background execution records and compatibility aliases', function
         app: 'checkout',
         deploy: null,
         sentAt: '2026-06-09T12:00:00+00:00',
-        records: [
-            ['v' => 1, 't' => 'scheduled-task', 'name' => 'schedule:run', 'status' => 'processed', 'queries' => 0],
-            ['v' => 1, 't' => 'queued-job', 'name' => 'SendWelcomeEmail', 'queries' => 0],
-            ['v' => 1, 't' => 'job-attempt', 'name' => 'SendWelcomeEmail', 'status' => 'processed', 'queries' => 4],
-            ['t' => 'artisan-command', 'name' => 'reports:build', 'hasQueries' => 'true'],
-        ],
+        records: ReceivePathCorpus::backgroundRecords(),
     );
 
     $job->handle(new IptoAsnLookup(null));
@@ -750,21 +702,7 @@ it('keeps a long SQL key distinct from an identical-looking short SQL key throug
 
 it('bounds every record type key to 255 characters', function (string $recordType, array $record): void {
     expect(mb_strlen(Normalizer::keyFor($recordType, $record)))->toBeLessThanOrEqual(255);
-})->with([
-    'request' => ['request', ['method' => 'GET', 'route' => '/'.str_repeat('segment/', 60)]],
-    'query' => ['query', ['sql' => str_repeat('select 1 union ', 40)]],
-    'queued job' => ['queued-job', ['name' => str_repeat('App\\Jobs\\VeryLongJobName', 20)]],
-    'job attempt' => ['job-attempt', ['name' => str_repeat('App\\Jobs\\VeryLongJobName', 20)]],
-    'command' => ['command', ['name' => str_repeat('reports:build:', 30)]],
-    'scheduled task' => ['scheduled-task', ['name' => str_repeat('schedule:run:', 30)]],
-    'exception' => ['exception', ['class' => str_repeat('App\\Exceptions\\Long', 10), 'file' => str_repeat('/var/www/app/', 20), 'line' => 42]],
-    'outgoing request' => ['outgoing-request', ['method' => 'GET', 'host' => str_repeat('sub.', 80).'example.com']],
-    'log' => ['log', ['level' => str_repeat('emergency', 40)]],
-    'user' => ['user', ['id' => str_repeat('1234567890', 30)]],
-    'cache event' => ['cache-event', ['store' => str_repeat('redis', 40), 'type' => str_repeat('hit', 40)]],
-    'unknown record type' => [str_repeat('custom-type', 30), []],
-    'multibyte key' => ['query', ['sql' => str_repeat('sélect Ω ', 60)]],
-]);
+})->with(ReceivePathCorpus::boundedKeys());
 
 it('persists after response on sync queues using the token app instead of envelope app', function (): void {
     config()->set('queue.default', 'sync');

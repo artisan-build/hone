@@ -9,16 +9,17 @@ on:
       - workos
     paths:
       - 'ingest/**'
-      - 'packages/hone-contracts/src/Envelope.php'
-      - 'packages/hone-server/src/Jobs/ProcessTelemetryBatch.php'
-      - 'packages/hone-server/src/Normalizer.php'
-      - 'packages/hone-server/src/Support/IptoAsnLookup.php'
-      - 'packages/hone-server/src/Support/PublicIp.php'
-      - 'packages/hone-server/tests/Fixtures/ip2asn.tsv'
-      - 'packages/hone-server/tests/Fixtures/rust-ingest-rows.json'
-      - 'packages/hone-server/tests/RustIngestParityFixtureTest.php'
+      - 'packages/hone-contracts/src/**'
+      - 'packages/hone-contracts/composer.*'
+      - 'packages/hone-server/src/**'
+      - 'packages/hone-server/routes/**'
+      - 'packages/hone-server/database/**'
+      - 'packages/hone-server/config/**'
+      - 'packages/hone-server/tests/**'
+      - 'packages/hone-server/composer.*'
+      - 'packages/hone-server/phpunit.xml'
       - '.github/workflows/rust-ingest.yml'
-      - 'composer.lock'
+      - 'composer.*'
   pull_request:
     branches:
       - develop
@@ -27,16 +28,17 @@ on:
       - workos
     paths:
       - 'ingest/**'
-      - 'packages/hone-contracts/src/Envelope.php'
-      - 'packages/hone-server/src/Jobs/ProcessTelemetryBatch.php'
-      - 'packages/hone-server/src/Normalizer.php'
-      - 'packages/hone-server/src/Support/IptoAsnLookup.php'
-      - 'packages/hone-server/src/Support/PublicIp.php'
-      - 'packages/hone-server/tests/Fixtures/ip2asn.tsv'
-      - 'packages/hone-server/tests/Fixtures/rust-ingest-rows.json'
-      - 'packages/hone-server/tests/RustIngestParityFixtureTest.php'
+      - 'packages/hone-contracts/src/**'
+      - 'packages/hone-contracts/composer.*'
+      - 'packages/hone-server/src/**'
+      - 'packages/hone-server/routes/**'
+      - 'packages/hone-server/database/**'
+      - 'packages/hone-server/config/**'
+      - 'packages/hone-server/tests/**'
+      - 'packages/hone-server/composer.*'
+      - 'packages/hone-server/phpunit.xml'
       - '.github/workflows/rust-ingest.yml'
-      - 'composer.lock'
+      - 'composer.*'
 
 permissions:
   contents: read
@@ -73,6 +75,37 @@ jobs:
       - name: Select stable Rust
         run: rustup default stable
 
+      - name: Cache Cargo registry and build artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ingest/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('ingest/Cargo.lock', 'ingest/Cargo.toml') }}-${{ hashFiles('ingest/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ hashFiles('ingest/Cargo.lock', 'ingest/Cargo.toml') }}-
+
+      - name: Setup PHP for live ingest parity
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, mbstring, sodium
+          tools: composer:v2
+          coverage: none
+
+      - name: Install Hone Server testbench dependencies
+        run: composer --working-dir=packages/hone-server install --no-interaction --prefer-dist
+
+      - name: Preflight required live parity prerequisites
+        run: |
+          command -v cargo
+          cargo --version
+          rustc --version
+          pg_isready -h 127.0.0.1 -p 5432 -U root -d hone_rust_test
+          createdb -h 127.0.0.1 -p 5432 -U root hone_server_test
+          php -r 'exit(extension_loaded("pdo_pgsql") ? 0 : 1);'
+
       - name: Check formatting
         run: cargo fmt --manifest-path ingest/Cargo.toml --check
 
@@ -81,3 +114,8 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked --manifest-path ingest/Cargo.toml --all-targets --all-features
+
+      # The ordinary package test script excludes this slower live consumer rung.
+      # This explicit step fails on missing prerequisites, any skip, or an empty group.
+      - name: Compare real PHP and Rust HTTP ingest persistence
+        run: composer --working-dir=packages/hone-server test:parity -- --compact
