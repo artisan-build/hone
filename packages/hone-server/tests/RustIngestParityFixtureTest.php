@@ -8,7 +8,8 @@ use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
 
 it('keeps the committed Rust row fixture equal to the real PHP persistence path', function (): void {
     $path = __DIR__.'/Fixtures/rust-ingest-rows.json';
-    $fixture = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+    $source = (string) file_get_contents($path);
+    $fixture = json_decode($source, true, flags: JSON_THROW_ON_ERROR);
 
     expect($fixture)->toBeArray();
 
@@ -42,10 +43,22 @@ it('keeps the committed Rust row fixture equal to the real PHP persistence path'
         ->all();
 
     if (env('HONE_UPDATE_RUST_INGEST_FIXTURE') === '1') {
-        $fixture['expected'] = $actual;
+        $expectedPosition = strpos($source, '    "expected":');
+
+        expect($expectedPosition)->not->toBeFalse();
+
+        $expectedJson = json_encode(
+            $actual,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
+        );
+        $expectedJson = str_replace("\n", "\n    ", $expectedJson);
+
         file_put_contents(
             $path,
-            json_encode($fixture, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR)."\n",
+            substr($source, 0, $expectedPosition)
+                .'    "expected": '
+                .$expectedJson
+                ."\n}\n",
         );
 
         $this->fail('The Rust ingest fixture was regenerated. Review and commit it, then rerun without HONE_UPDATE_RUST_INGEST_FIXTURE.');

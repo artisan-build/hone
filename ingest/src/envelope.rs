@@ -110,7 +110,11 @@ fn php_number_string(number: &serde_json::Number) -> String {
         return value.to_string();
     }
     if let Some(value) = number.as_u64() {
-        return value.to_string();
+        if value <= i64::MAX as u64 {
+            return value.to_string();
+        }
+
+        return php_float_string(value as f64);
     }
 
     let Some(value) = number.as_f64() else {
@@ -129,22 +133,21 @@ fn php_float_string(value: f64) -> String {
         };
     }
 
-    let absolute = value.abs();
-    if !(1e-4..1e14).contains(&absolute) {
-        let formatted = format!("{value:.13e}");
-        let (mantissa, exponent) = formatted.split_once('e').unwrap_or((&formatted, "0"));
+    let scientific = format!("{value:.13e}");
+    let (mantissa, exponent) = scientific.split_once('e').unwrap_or((&scientific, "0"));
+    let exponent = exponent.parse::<i32>().unwrap_or_default();
+    if !(-4..=13).contains(&exponent) {
         let mut mantissa = mantissa.trim_end_matches('0').to_string();
         if mantissa.ends_with('.') {
             mantissa.push('0');
         }
-        let exponent = exponent.parse::<i32>().unwrap_or_default();
 
         return format!("{mantissa}E{exponent:+}");
     }
 
-    let integer_digits = absolute.log10().floor() as i32 + 1;
-    let decimal_places = (14 - integer_digits).max(0) as usize;
-    let formatted = format!("{value:.decimal_places$}");
+    let rounded = scientific.parse::<f64>().unwrap_or(value);
+    let decimal_places = (13 - exponent).max(0) as usize;
+    let formatted = format!("{rounded:.decimal_places$}");
 
     if formatted.contains('.') {
         formatted
@@ -249,6 +252,11 @@ mod tests {
         assert_eq!(php_cast_string(&json!(1.5)), "1.5");
         assert_eq!(php_cast_string(&json!(1e20)), "1.0E+20");
         assert_eq!(php_cast_string(&json!(1e-7)), "1.0E-7");
+        assert_eq!(
+            php_cast_string(&serde_json::from_str("9223372036854775808").unwrap()),
+            "9.2233720368548E+18"
+        );
+        assert_eq!(php_cast_string(&json!(99999999999999.9)), "1.0E+14");
         assert_eq!(
             php_cast_string(&json!(1.2345678901234567)),
             "1.2345678901235"

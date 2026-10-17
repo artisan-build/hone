@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::Router;
-use axum::body::Bytes;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::body::to_bytes;
+use axum::extract::{Request, State};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
@@ -31,9 +31,11 @@ async fn up() -> StatusCode {
     StatusCode::OK
 }
 
-async fn ingest(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
+async fn ingest(State(state): State<Arc<AppState>>, request: Request) -> Response {
     let started = Instant::now();
-    let bearer = headers
+    let (parts, body) = request.into_parts();
+    let bearer = parts
+        .headers
         .get("authorization")
         .and_then(|header| header.to_str().ok())
         .and_then(extract_bearer)
@@ -51,6 +53,11 @@ async fn ingest(State(state): State<Arc<AppState>>, headers: HeaderMap, body: By
             );
             return server_error();
         }
+    };
+
+    let body = match to_bytes(body, usize::MAX).await {
+        Ok(body) => body,
+        Err(_) => return server_error(),
     };
 
     let data: Value = match serde_json::from_slice(&body) {
@@ -204,6 +211,47 @@ mod tests {
                 r#"{"message":"Unauthorized."}"#
             );
         }
+        database.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn authenticates_before_collecting_large_bodies_and_accepts_large_envelopes() {
+        let database = TestDatabase::new().await;
+        database.insert_credential("secret", None).await;
+        let app = router(state(&database, 60));
+        let padding = "x".repeat(2 * 1024 * 1024 + 1);
+        let large_body = json!({
+            "envelope_version": 1,
+            "app": "forged",
+            "sent_at": "2026-06-09T12:00:00Z",
+            "records": [{"t": "log", "level": "info", "padding": padding}]
+        })
+        .to_string();
+
+        let unauthorized = app
+            .clone()
+            .oneshot(request(None, &large_body))
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response_body(unauthorized).await,
+            r#"{"message":"Unauthorized."}"#
+        );
+
+        let accepted = app
+            .oneshot(request(Some("Bearer secret"), &large_body))
+            .await
+            .unwrap();
+        assert_eq!(accepted.status(), StatusCode::ACCEPTED);
+        assert_eq!(response_body(accepted).await, r#"{"message":"Accepted."}"#);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM raw_events")
+                .fetch_one(&database.pool)
+                .await
+                .unwrap(),
+            1
+        );
         database.cleanup().await;
     }
 
@@ -396,6 +444,43 @@ mod tests {
                 .await
                 .unwrap(),
             "GET /kept"
+        );
+        database.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn pool_failures_after_a_cache_hit_return_a_generic_500() {
+        let database = TestDatabase::new().await;
+        database.insert_credential("secret", None).await;
+        let app = router(state(&database, 60));
+        let warmup = json!({"envelope_version": 1, "app": "x", "records": []}).to_string();
+        assert_eq!(
+            app.clone()
+                .oneshot(request(Some("Bearer secret"), &warmup))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::ACCEPTED
+        );
+        database.pool.close().await;
+        let response = app
+            .oneshot(request(
+                Some("Bearer secret"),
+                &json!({
+                    "envelope_version": 1,
+                    "app": "x",
+                    "sent_at": "2026-06-09T12:00:00Z",
+                    "records": [{"t": "query", "sql": "select 1"}]
+                })
+                .to_string(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response_body(response).await,
+            r#"{"message":"Server Error"}"#
         );
         database.cleanup().await;
     }

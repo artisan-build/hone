@@ -25,6 +25,12 @@ impl SafeDatabaseError {
 
         Self { category, sqlstate }
     }
+
+    pub fn is_row_rejection(&self) -> bool {
+        self.sqlstate
+            .as_deref()
+            .is_some_and(|sqlstate| sqlstate.starts_with("22") || sqlstate.starts_with("23"))
+    }
 }
 
 #[cfg(test)]
@@ -39,5 +45,13 @@ mod tests {
 
         assert_eq!(safe.category, "protocol");
         assert!(!format!("{safe:?}").contains(sensitive));
+        assert!(!safe.is_row_rejection());
+        assert!(
+            SafeDatabaseError {
+                category: "database",
+                sqlstate: Some("23514".to_string()),
+            }
+            .is_row_rejection()
+        );
     }
 }

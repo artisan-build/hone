@@ -16,6 +16,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]

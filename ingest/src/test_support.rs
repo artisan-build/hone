@@ -60,11 +60,11 @@ impl TestDatabase {
                 user_id text,
                 secret_hash text,
                 status text NOT NULL DEFAULT 'active',
-                revoked_at timestamptz,
-                expires_at timestamptz,
-                last_used_at timestamptz,
-                created_at timestamptz,
-                updated_at timestamptz
+                revoked_at timestamp(0),
+                expires_at timestamp(0),
+                last_used_at timestamp(0),
+                created_at timestamp(0),
+                updated_at timestamp(0)
             );
             CREATE TABLE credential_protocol_bindings (credential_id uuid PRIMARY KEY);
             CREATE TABLE offboarded_subjects (
@@ -75,9 +75,9 @@ impl TestDatabase {
             CREATE TABLE onboarding_tokens (
                 id uuid PRIMARY KEY,
                 email text,
-                consumed_at timestamptz,
+                consumed_at timestamp(0),
                 durable_credential_id uuid,
-                updated_at timestamptz
+                updated_at timestamp(0)
             );
             CREATE TABLE credential_audit_events (
                 id uuid PRIMARY KEY,
@@ -93,18 +93,18 @@ impl TestDatabase {
                 actor_ref text,
                 recipient text,
                 code_ttl_seconds integer,
-                credential_expires_at timestamptz,
+                credential_expires_at timestamp(0),
                 reason_code text,
                 note text,
-                occurred_at timestamptz,
-                created_at timestamptz
+                occurred_at timestamp(0),
+                created_at timestamp(0)
             );
             CREATE TABLE raw_events (
                 id bigserial PRIMARY KEY,
                 app varchar(255) NOT NULL,
                 record_type varchar(255) NOT NULL,
                 deploy varchar(255),
-                occurred_at timestamptz NOT NULL,
+                occurred_at timestamptz(0) NOT NULL,
                 normalized_key varchar(255) NOT NULL,
                 duration_ms double precision,
                 payload jsonb NOT NULL,
@@ -116,7 +116,7 @@ impl TestDatabase {
                 user_agent text,
                 client_ip varchar(45),
                 asn bigint,
-                created_at timestamptz NOT NULL DEFAULT now()
+                created_at timestamptz(0) NOT NULL DEFAULT now()
             );
             CREATE TABLE ingest_counters (
                 id bigserial PRIMARY KEY,
@@ -159,12 +159,39 @@ impl TestDatabase {
         )
         .bind(credential_id)
         .bind(secret_hash)
-        .bind(expires_at)
+        .bind(expires_at.map(|expires_at| expires_at.naive_utc()))
         .execute(&self.pool)
         .await
         .unwrap();
 
         credential_id
+    }
+
+    pub async fn observe_raw_event_inserts(&self) {
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE raw_event_insert_observations (
+                row_count bigint NOT NULL,
+                transaction_id bigint NOT NULL
+            );
+
+            CREATE FUNCTION observe_raw_event_insert() RETURNS trigger AS $$
+            BEGIN
+                INSERT INTO raw_event_insert_observations (row_count, transaction_id)
+                SELECT count(*), txid_current() FROM inserted_rows;
+                RETURN NULL;
+            END;
+            $$ LANGUAGE plpgsql;
+
+            CREATE TRIGGER observe_raw_event_insert
+            AFTER INSERT ON raw_events
+            REFERENCING NEW TABLE AS inserted_rows
+            FOR EACH STATEMENT EXECUTE FUNCTION observe_raw_event_insert();
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
     }
 
     pub async fn cleanup(self) {

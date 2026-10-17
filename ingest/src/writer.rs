@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use chrono::Timelike;
 use sqlx::QueryBuilder;
 use sqlx::postgres::PgPool;
 use tracing::warn;
@@ -32,8 +33,6 @@ const KNOWN_RECORD_TYPES: &[&str] = &[
 pub struct Writer {
     pool: PgPool,
     asn_lookup: Arc<AsnLookup>,
-    #[cfg(test)]
-    chunk_sizes: Arc<tokio::sync::Mutex<Vec<usize>>>,
 }
 
 impl Writer {
@@ -41,8 +40,6 @@ impl Writer {
         Self {
             pool,
             asn_lookup: Arc::new(asn_lookup),
-            #[cfg(test)]
-            chunk_sizes: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -65,15 +62,19 @@ impl Writer {
         }
 
         for chunk in rows.chunks(INSERT_CHUNK_ROWS) {
-            #[cfg(test)]
-            self.chunk_sizes.lock().await.push(chunk.len());
-
-            if self.insert_rows(chunk).await.is_err() {
-                for row in chunk {
-                    if let Err(error) = self.insert_rows(std::slice::from_ref(row)).await {
-                        log_row_rejection(&row.record_type, &error);
+            match self.insert_rows(chunk).await {
+                Ok(()) => {}
+                Err(error) if error.is_row_rejection() => {
+                    for row in chunk {
+                        if let Err(error) = self.insert_rows(std::slice::from_ref(row)).await {
+                            if !error.is_row_rejection() {
+                                return Err(error);
+                            }
+                            log_row_rejection(&row.record_type, &error);
+                        }
                     }
                 }
+                Err(error) => return Err(error),
             }
         }
 
@@ -95,7 +96,11 @@ impl Writer {
                 .push_bind(&row.app)
                 .push_bind(&row.record_type)
                 .push_bind(&row.deploy)
-                .push_bind(row.occurred_at)
+                .push_bind(
+                    row.occurred_at
+                        .with_nanosecond(0)
+                        .unwrap_or(row.occurred_at),
+                )
                 .push_bind(&row.normalized_key)
                 .push_bind(row.duration_ms)
                 .push_bind(sqlx::types::Json(&row.payload))
@@ -227,6 +232,7 @@ mod tests {
     #[tokio::test]
     async fn persists_1201_rows_as_three_bounded_chunks() {
         let database = TestDatabase::new().await;
+        database.observe_raw_event_inserts().await;
         let writer = Writer::new(database.pool.clone(), AsnLookup::default());
         let records = (1..=1201)
             .map(|index| json!({"t": "query", "sql": format!("select {index}")}))
@@ -234,7 +240,27 @@ mod tests {
 
         writer.write("checkout", &envelope(records)).await.unwrap();
 
-        assert_eq!(*writer.chunk_sizes.lock().await, vec![500, 500, 201]);
+        let observations = sqlx::query(
+            "SELECT row_count, transaction_id FROM raw_event_insert_observations ORDER BY ctid",
+        )
+        .fetch_all(&database.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            observations
+                .iter()
+                .map(|row| row.get::<i64, _>("row_count"))
+                .collect::<Vec<_>>(),
+            vec![500, 500, 201]
+        );
+        assert_eq!(
+            observations
+                .iter()
+                .map(|row| row.get::<i64, _>("transaction_id"))
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT count(*) FROM raw_events")
                 .fetch_one(&database.pool)
@@ -375,12 +401,15 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn custom_record_types_and_errors_are_reduced_to_safe_fields() {
         let error = SafeDatabaseError {
             category: "database",
             sqlstate: Some("23514".to_string()),
         };
         log_row_rejection("customer-secret-type", &error);
-        assert!(!KNOWN_RECORD_TYPES.contains(&"customer-secret-type"));
+        assert!(logs_contain("record_type=\"custom\""));
+        assert!(logs_contain("sqlstate=\"23514\""));
+        assert!(!logs_contain("customer-secret-type"));
     }
 }

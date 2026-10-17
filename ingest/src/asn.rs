@@ -97,13 +97,7 @@ pub fn is_public_ip(ip_address: IpAddr) -> bool {
                 ("127.0.0.0", 8),
                 ("169.254.0.0", 16),
                 ("172.16.0.0", 12),
-                ("192.0.0.0", 24),
-                ("192.0.2.0", 24),
                 ("192.168.0.0", 16),
-                ("198.18.0.0", 15),
-                ("198.51.100.0", 24),
-                ("203.0.113.0", 24),
-                ("224.0.0.0", 4),
                 ("240.0.0.0", 4),
             ]
             .iter()
@@ -118,23 +112,17 @@ pub fn is_public_ip(ip_address: IpAddr) -> bool {
         }
         IpAddr::V6(ip) => {
             let value = u128::from(ip);
-            ![
-                ("::", 128),
-                ("::1", 128),
-                ("fc00::", 7),
-                ("fe80::", 10),
-                ("2001:db8::", 32),
-                ("ff00::", 8),
-            ]
-            .iter()
-            .any(|(network, prefix)| {
-                let network = network
-                    .parse::<std::net::Ipv6Addr>()
-                    .map(u128::from)
-                    .unwrap_or_default();
-                let mask = u128::MAX.checked_shl(128 - prefix).unwrap_or_default();
-                value & mask == network & mask
-            })
+            ip.to_ipv4_mapped().is_none()
+                && ![("::", 128), ("::1", 128), ("fc00::", 7), ("fe80::", 10)]
+                    .iter()
+                    .any(|(network, prefix)| {
+                        let network = network
+                            .parse::<std::net::Ipv6Addr>()
+                            .map(u128::from)
+                            .unwrap_or_default();
+                        let mask = u128::MAX.checked_shl(128 - prefix).unwrap_or_default();
+                        value & mask == network & mask
+                    })
         }
     }
 }
@@ -161,6 +149,11 @@ mod tests {
         assert_eq!(lookup.lookup(Some("1.1.1.1")), Some(13335));
         assert_eq!(lookup.lookup(Some("100.64.1.1")), None);
         assert_eq!(lookup.lookup(Some("10.0.0.1")), None);
+        assert!(is_public_ip("192.0.2.1".parse().unwrap()));
+        assert!(is_public_ip("198.51.100.1".parse().unwrap()));
+        assert!(is_public_ip("224.0.0.1".parse().unwrap()));
+        assert!(!is_public_ip("::ffff:10.0.0.1".parse().unwrap()));
+        assert!(!is_public_ip("::ffff:1.1.1.1".parse().unwrap()));
         assert_eq!(
             AsnLookup::from_path(Some("/missing/ip2asn.tsv")).lookup(Some("1.1.1.1")),
             None

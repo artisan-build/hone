@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -70,6 +70,7 @@ pub fn build_row(
     let record_type = record_type(record);
     let enrichment = enrichment(&record_type, record, asn_lookup);
     let occurred_at = occurred_at(record, sent_at)?;
+    let response = enrichment.response.as_ref().map(php_json_value);
 
     Ok(Some(RawEventRow {
         app: app.to_string(),
@@ -77,13 +78,13 @@ pub fn build_row(
         deploy: deploy
             .filter(|value| !php_blank_string(value))
             .map(str::to_string),
-        occurred_at: occurred_at.with_nanosecond(0).unwrap_or(occurred_at),
+        occurred_at,
         normalized_key: normalizer::key_for(&record_type, record),
         duration_ms: duration_ms(record),
         payload: php_json_value(record),
         actor: enrichment.actor,
         ran_queries: enrichment.ran_queries,
-        response: enrichment.response,
+        response,
         request_path: enrichment.request_path,
         request_host: enrichment.request_host,
         user_agent: enrichment.user_agent,
@@ -94,23 +95,43 @@ pub fn build_row(
 
 fn php_json_value(value: &Value) -> Value {
     match value {
+        Value::Number(number)
+            if number
+                .as_u64()
+                .is_some_and(|number| number > i64::MAX as u64) =>
+        {
+            number
+                .as_f64()
+                .and_then(serde_json::Number::from_f64)
+                .map(Value::Number)
+                .unwrap_or_else(|| value.clone())
+        }
         Value::Number(number) if number.is_f64() => {
             let Some(number) = number.as_f64() else {
                 return value.clone();
             };
-            if number.fract() == 0.0 && number >= i64::MIN as f64 && number <= i64::MAX as f64 {
+            if number.fract() == 0.0 && number > i64::MIN as f64 && number < i64::MAX as f64 {
                 Value::from(number as i64)
             } else {
                 value.clone()
             }
         }
         Value::Array(values) => Value::Array(values.iter().map(php_json_value).collect()),
-        Value::Object(values) => Value::Object(
-            values
+        Value::Object(values) => {
+            let values = values
                 .iter()
                 .map(|(key, value)| (key.clone(), php_json_value(value)))
-                .collect(),
-        ),
+                .collect::<Vec<_>>();
+            if values
+                .iter()
+                .enumerate()
+                .all(|(index, (key, _value))| key == &index.to_string())
+            {
+                Value::Array(values.into_iter().map(|(_key, value)| value).collect())
+            } else {
+                Value::Object(values.into_iter().collect())
+            }
+        }
         _ => value.clone(),
     }
 }
@@ -141,12 +162,12 @@ fn occurred_at(record: &Value, sent_at: &str) -> Result<DateTime<Utc>, RowBuildE
 fn parse_timestamp(value: &Value) -> Result<Option<DateTime<Utc>>, RowBuildError> {
     let parsed = match value {
         Value::Number(number) => match number.as_f64() {
-            Some(number) => Some(timestamp_from_number(number)?),
+            Some(number) => timestamp_from_number(number)?,
             None => None,
         },
         Value::String(value) if !value.is_empty() => {
             if let Ok(number) = value.trim().parse::<f64>() {
-                return timestamp_from_number(number).map(Some);
+                return timestamp_from_number(number);
             }
 
             parse_date_string(value)
@@ -157,9 +178,9 @@ fn parse_timestamp(value: &Value) -> Result<Option<DateTime<Utc>>, RowBuildError
     Ok(parsed)
 }
 
-fn timestamp_from_number(timestamp: f64) -> Result<DateTime<Utc>, RowBuildError> {
+fn timestamp_from_number(timestamp: f64) -> Result<Option<DateTime<Utc>>, RowBuildError> {
     if !timestamp.is_finite() {
-        return Err(RowBuildError::TimestampOutOfRange);
+        return Ok(None);
     }
 
     let seconds = if timestamp > 9_999_999_999.0 {
@@ -167,11 +188,19 @@ fn timestamp_from_number(timestamp: f64) -> Result<DateTime<Utc>, RowBuildError>
     } else {
         timestamp
     };
-    let whole_seconds = seconds.trunc() as i64;
-    let nanoseconds = ((seconds - seconds.trunc()).abs() * 1_000_000_000.0).round() as u32;
+    if seconds < i64::MIN as f64 || seconds > i64::MAX as f64 {
+        return Ok(None);
+    }
+    let mut whole_seconds = seconds.floor() as i64;
+    let mut nanoseconds = ((seconds - seconds.floor()) * 1_000_000_000.0).round() as u32;
+    if nanoseconds == 1_000_000_000 {
+        whole_seconds = whole_seconds.saturating_add(1);
+        nanoseconds = 0;
+    }
 
     Utc.timestamp_opt(whole_seconds, nanoseconds)
         .single()
+        .map(Some)
         .ok_or(RowBuildError::TimestampOutOfRange)
 }
 
@@ -316,7 +345,7 @@ fn boolean_value(record: &Value, keys: &[&str]) -> Option<bool> {
         return match value {
             Value::Bool(value) => Some(*value),
             Value::Number(value) => value.as_f64().map(|value| value > 0.0),
-            Value::String(value) => match value.to_ascii_lowercase().as_str() {
+            Value::String(value) => match php_trim(value).to_ascii_lowercase().as_str() {
                 "1" | "true" | "on" | "yes" => Some(true),
                 "" | "0" | "false" | "off" | "no" => Some(false),
                 _ => None,
@@ -388,15 +417,8 @@ fn client_ip(record: &Value, headers: Option<&Value>) -> Option<String> {
 
 fn request_host(record: &Value, headers: Option<&Value>) -> Option<String> {
     let host = first_scalar(record, &["host", "hostname"]).or_else(|| header(headers, "host"))?;
-    let authority = host.split('/').next()?.rsplit('@').next()?;
-    let hostname = if authority.starts_with('[') {
-        authority
-            .find(']')
-            .map(|end| authority[..=end].to_string())?
-    } else {
-        authority.split(':').next()?.to_string()
-    };
-    let hostname = hostname.to_lowercase();
+    let parsed = url::Url::parse(&format!("http://{host}")).ok()?;
+    let hostname = parsed.host_str()?.to_lowercase();
     let hostname = hostname.trim_end_matches('.');
 
     (!hostname.is_empty()).then(|| hostname.to_string())
@@ -450,8 +472,12 @@ fn php_trim(value: &str) -> String {
 mod tests {
     use serde_json::Value;
     use serde_json::json;
+    use sqlx::Row;
 
     use super::*;
+    use crate::envelope::Envelope;
+    use crate::test_support::TestDatabase;
+    use crate::writer::Writer;
 
     #[test]
     fn list_records_are_rows_with_unknown_named_fields() {
@@ -522,6 +548,82 @@ mod tests {
             carbon_style.occurred_at.to_rfc3339(),
             "2009-05-08T17:57:51+00:00"
         );
+
+        let fallback = build_row(
+            "checkout",
+            None,
+            "2026-06-09T12:00:00Z",
+            &json!({"t": "log", "timestamp": 1e100, "ts": 1781006403000_i64}),
+            &AsnLookup::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            fallback.occurred_at.to_rfc3339(),
+            "2026-06-09T12:00:03+00:00"
+        );
+
+        let negative = build_row(
+            "checkout",
+            None,
+            "2026-06-09T12:00:00Z",
+            &json!({"t": "log", "timestamp": -0.5}),
+            &AsnLookup::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            negative
+                .occurred_at
+                .format("%Y-%m-%dT%H:%M:%S%.6fZ")
+                .to_string(),
+            "1969-12-31T23:59:59.500000Z"
+        );
+
+        let coercions = build_row(
+            "checkout",
+            None,
+            "2026-06-09T12:00:00Z",
+            &json!({
+                "t": "request",
+                "queries": " yes ",
+                "host": "Example.Test?x=1",
+                "user": ""
+            }),
+            &AsnLookup::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(coercions.ran_queries, Some(true));
+        assert_eq!(coercions.request_host.as_deref(), Some("example.test"));
+
+        let invalid_host = build_row(
+            "checkout",
+            None,
+            "2026-06-09T12:00:00Z",
+            &json!({"t": "request", "host": "example.test:bad", "user": ""}),
+            &AsnLookup::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(invalid_host.request_host, None);
+    }
+
+    #[test]
+    fn recursively_matches_php_associative_json_encoding() {
+        assert_eq!(php_json_value(&json!({})), json!([]));
+        assert_eq!(
+            php_json_value(&json!({
+                "meta": {},
+                "sequence": {"0": "a", "1": {"empty": {}}},
+                "non_list": {"1": "b"}
+            })),
+            json!({
+                "meta": [],
+                "sequence": ["a", {"empty": []}],
+                "non_list": {"1": "b"}
+            })
+        );
     }
 
     #[test]
@@ -550,8 +652,8 @@ mod tests {
         assert!(row.ran_queries.is_none());
     }
 
-    #[test]
-    fn matches_the_php_generated_golden_rows() {
+    #[tokio::test]
+    async fn matches_the_php_generated_golden_rows_after_real_postgres_persistence() {
         let fixture: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../packages/hone-server/tests/Fixtures/rust-ingest-rows.json"
@@ -566,31 +668,65 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../packages/hone-server/tests/Fixtures/ip2asn.tsv"
         );
-        let asn_lookup = AsnLookup::from_path(Some(asn_fixture));
-        let actual = records
-            .iter()
-            .filter_map(|record| build_row(app, deploy, sent_at, record, &asn_lookup).unwrap())
-            .map(|row| {
-                json!({
-                    "app": row.app,
-                    "record_type": row.record_type,
-                    "deploy": row.deploy,
-                    "occurred_at": row.occurred_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                    "normalized_key": row.normalized_key,
-                    "duration_ms": row.duration_ms,
-                    "payload": row.payload,
-                    "actor": row.actor,
-                    "ran_queries": row.ran_queries,
-                    "response": row.response,
-                    "request_path": row.request_path,
-                    "request_host": row.request_host,
-                    "user_agent": row.user_agent,
-                    "client_ip": row.client_ip,
-                    "asn": row.asn,
-                })
+        let database = TestDatabase::new().await;
+        let writer = Writer::new(
+            database.pool.clone(),
+            AsnLookup::from_path(Some(asn_fixture)),
+        );
+        writer
+            .write(
+                app,
+                &Envelope {
+                    app: "forged".to_string(),
+                    deploy: deploy.map(str::to_string),
+                    sent_at: sent_at.to_string(),
+                    records: records.clone(),
+                    overflow_dropped_records: 0,
+                    failed_delivery_records: 0,
+                },
+            )
+            .await
+            .unwrap();
+        let actual = sqlx::query(
+            r#"
+            SELECT app, record_type, deploy, occurred_at, normalized_key,
+                   duration_ms, payload, actor, ran_queries, response,
+                   request_path, request_host, user_agent, client_ip, asn
+            FROM raw_events
+            ORDER BY id
+            "#,
+        )
+        .fetch_all(&database.pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let occurred_at = row.get::<DateTime<Utc>, _>("occurred_at");
+            let payload = php_json_value(&row.get::<sqlx::types::Json<Value>, _>("payload").0);
+            let response = row
+                .get::<Option<sqlx::types::Json<Value>>, _>("response")
+                .map(|response| php_json_value(&response.0));
+            json!({
+                "app": row.get::<String, _>("app"),
+                "record_type": row.get::<String, _>("record_type"),
+                "deploy": row.get::<Option<String>, _>("deploy"),
+                "occurred_at": occurred_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
+                "normalized_key": row.get::<String, _>("normalized_key"),
+                "duration_ms": row.get::<Option<f64>, _>("duration_ms"),
+                "payload": payload,
+                "actor": row.get::<Option<String>, _>("actor"),
+                "ran_queries": row.get::<Option<bool>, _>("ran_queries"),
+                "response": response,
+                "request_path": row.get::<Option<String>, _>("request_path"),
+                "request_host": row.get::<Option<String>, _>("request_host"),
+                "user_agent": row.get::<Option<String>, _>("user_agent"),
+                "client_ip": row.get::<Option<String>, _>("client_ip"),
+                "asn": row.get::<Option<i64>, _>("asn"),
             })
-            .collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
 
         assert_eq!(&actual, expected);
+        database.cleanup().await;
     }
 }
