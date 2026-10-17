@@ -33,6 +33,7 @@ impl TestDatabase {
             .unwrap();
 
         let connection_schema = schema.clone();
+        let test_options = options.application_name(&schema);
         let pool = PgPoolOptions::new()
             .max_connections(10)
             .after_connect(move |connection, _metadata| {
@@ -45,7 +46,7 @@ impl TestDatabase {
                     Ok(())
                 })
             })
-            .connect_with(options)
+            .connect_with(test_options)
             .await
             .unwrap();
 
@@ -192,6 +193,33 @@ impl TestDatabase {
         .execute(&self.pool)
         .await
         .unwrap();
+    }
+
+    pub async fn wait_for_lock(&self, query_fragment: &str) {
+        for _attempt in 0..200 {
+            let waiting = sqlx::query_scalar::<_, bool>(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_stat_activity
+                    WHERE application_name = $1
+                      AND wait_event_type = 'Lock'
+                      AND query LIKE '%' || $2 || '%'
+                )
+                "#,
+            )
+            .bind(&self.schema)
+            .bind(query_fragment)
+            .fetch_one(&self.administrative_pool)
+            .await
+            .unwrap();
+            if waiting {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        panic!("expected a PostgreSQL lock wait for {query_fragment}");
     }
 
     pub async fn cleanup(self) {

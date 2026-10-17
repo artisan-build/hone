@@ -61,9 +61,11 @@ struct AuthTestHooks {
     resolution_reached: Semaphore,
     resolution_release: Semaphore,
     pause_after_first_code_lock: bool,
+    code_lock_attempted: Semaphore,
     code_lock_count: std::sync::atomic::AtomicUsize,
     first_code_lock_reached: Semaphore,
     first_code_lock_release: Semaphore,
+    credential_lock_attempted: Semaphore,
 }
 
 impl Authenticator {
@@ -179,6 +181,9 @@ impl Authenticator {
             .await
             .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
 
+        #[cfg(test)]
+        self.signal_code_lock_attempt();
+
         let pending_codes = sqlx::query(
             r#"
             SELECT id, email
@@ -195,6 +200,25 @@ impl Authenticator {
 
         #[cfg(test)]
         self.pause_after_first_code_lock().await;
+
+        #[cfg(test)]
+        self.signal_credential_lock_attempt();
+
+        let credential_exists =
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM credentials WHERE id = $1 FOR UPDATE")
+                .bind(credential_id)
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?
+                .is_some();
+        if !credential_exists {
+            transaction
+                .rollback()
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+
+            return Ok(false);
+        }
 
         let now: NaiveDateTime = sqlx::query_scalar("SELECT clock_timestamp() AT TIME ZONE 'UTC'")
             .fetch_one(&mut *transaction)
@@ -418,11 +442,11 @@ impl Authenticator {
         let Some(hooks) = &self.test_hooks else {
             return;
         };
+        hooks.resolution_reached.add_permits(1);
         if !hooks.pause_after_resolution {
             return;
         }
 
-        hooks.resolution_reached.add_permits(1);
         if let Ok(permit) = hooks.resolution_release.acquire().await {
             permit.forget();
         }
@@ -446,6 +470,20 @@ impl Authenticator {
             permit.forget();
         }
     }
+
+    #[cfg(test)]
+    fn signal_code_lock_attempt(&self) {
+        if let Some(hooks) = &self.test_hooks {
+            hooks.code_lock_attempted.add_permits(1);
+        }
+    }
+
+    #[cfg(test)]
+    fn signal_credential_lock_attempt(&self) {
+        if let Some(hooks) = &self.test_hooks {
+            hooks.credential_lock_attempted.add_permits(1);
+        }
+    }
 }
 
 fn code_identity(row: &sqlx::postgres::PgRow) -> Result<(Uuid, Option<String>), SafeDatabaseError> {
@@ -461,7 +499,6 @@ fn code_identity(row: &sqlx::postgres::PgRow) -> Result<(Uuid, Option<String>), 
 mod tests {
     use chrono::Duration as ChronoDuration;
     use sqlx::Executor;
-    use tokio::time::timeout;
 
     use super::*;
     use crate::test_support::TestDatabase;
@@ -702,9 +739,11 @@ mod tests {
             resolution_reached: Semaphore::new(0),
             resolution_release: Semaphore::new(0),
             pause_after_first_code_lock: true,
+            code_lock_attempted: Semaphore::new(0),
             code_lock_count: std::sync::atomic::AtomicUsize::new(0),
             first_code_lock_reached: Semaphore::new(0),
             first_code_lock_release: Semaphore::new(0),
+            credential_lock_attempted: Semaphore::new(0),
         });
         let authenticator = Arc::new(
             Authenticator::new(database.pool.clone(), 0, context()).with_test_hooks(hooks.clone()),
@@ -713,22 +752,23 @@ mod tests {
             let authenticator = authenticator.clone();
             tokio::spawn(async move { authenticator.authorize("secret").await })
         };
+        hooks.resolution_reached.acquire().await.unwrap().forget();
+        hooks.code_lock_attempted.acquire().await.unwrap().forget();
         hooks
             .first_code_lock_reached
             .acquire()
             .await
             .unwrap()
             .forget();
-        let mut second = {
+        let second = {
             let authenticator = authenticator.clone();
             tokio::spawn(async move { authenticator.authorize("secret").await })
         };
+        hooks.resolution_reached.acquire().await.unwrap().forget();
+        hooks.code_lock_attempted.acquire().await.unwrap().forget();
 
-        assert!(
-            timeout(Duration::from_millis(100), &mut second)
-                .await
-                .is_err()
-        );
+        database.wait_for_lock("FROM onboarding_tokens").await;
+        assert!(!second.is_finished());
         hooks.first_code_lock_release.add_permits(1);
         assert!(first.await.unwrap().unwrap().is_some());
         assert!(second.await.unwrap().unwrap().is_some());
@@ -760,9 +800,11 @@ mod tests {
             resolution_reached: Semaphore::new(0),
             resolution_release: Semaphore::new(0),
             pause_after_first_code_lock: false,
+            code_lock_attempted: Semaphore::new(0),
             code_lock_count: std::sync::atomic::AtomicUsize::new(0),
             first_code_lock_reached: Semaphore::new(0),
             first_code_lock_release: Semaphore::new(0),
+            credential_lock_attempted: Semaphore::new(0),
         });
         let authenticator =
             Authenticator::new(database.pool.clone(), 0, context()).with_test_hooks(hooks.clone());
@@ -805,9 +847,11 @@ mod tests {
             resolution_reached: Semaphore::new(0),
             resolution_release: Semaphore::new(0),
             pause_after_first_code_lock: true,
+            code_lock_attempted: Semaphore::new(0),
             code_lock_count: std::sync::atomic::AtomicUsize::new(0),
             first_code_lock_reached: Semaphore::new(0),
             first_code_lock_release: Semaphore::new(0),
+            credential_lock_attempted: Semaphore::new(0),
         });
         let authenticator =
             Authenticator::new(database.pool.clone(), 0, context()).with_test_hooks(hooks.clone());
@@ -830,6 +874,77 @@ mod tests {
             .await
             .unwrap();
         hooks.first_code_lock_release.add_permits(1);
+
+        assert_eq!(authorization.await.unwrap().unwrap(), None);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM credential_audit_events")
+                .fetch_one(&database.pool)
+                .await
+                .unwrap(),
+            0
+        );
+        database.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn expiry_during_the_credential_lock_wait_fails_against_post_lock_wall_clock() {
+        let database = TestDatabase::new().await;
+        let credential = database
+            .insert_credential("secret", Some(Utc::now() + ChronoDuration::hours(1)))
+            .await;
+        sqlx::query(
+            "INSERT INTO onboarding_tokens (id, email, consumed_at, durable_credential_id, updated_at) VALUES ($1, NULL, NULL, $2, now())",
+        )
+        .bind(Uuid::new_v4())
+        .bind(credential)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+        let hooks = Arc::new(AuthTestHooks {
+            pause_after_resolution: true,
+            resolution_reached: Semaphore::new(0),
+            resolution_release: Semaphore::new(0),
+            pause_after_first_code_lock: false,
+            code_lock_attempted: Semaphore::new(0),
+            code_lock_count: std::sync::atomic::AtomicUsize::new(0),
+            first_code_lock_reached: Semaphore::new(0),
+            first_code_lock_release: Semaphore::new(0),
+            credential_lock_attempted: Semaphore::new(0),
+        });
+        let authenticator =
+            Authenticator::new(database.pool.clone(), 0, context()).with_test_hooks(hooks.clone());
+        let authorization = tokio::spawn(async move { authenticator.authorize("secret").await });
+        hooks.resolution_reached.acquire().await.unwrap().forget();
+
+        let mut holder = database.pool.begin().await.unwrap();
+        sqlx::query("SELECT id FROM credentials WHERE id = $1 FOR UPDATE")
+            .bind(credential)
+            .fetch_one(&mut *holder)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE credentials SET expires_at = date_trunc('second', clock_timestamp() AT TIME ZONE 'UTC') + interval '1 second' WHERE id = $1",
+        )
+        .bind(credential)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+        hooks.resolution_release.add_permits(1);
+        hooks.code_lock_attempted.acquire().await.unwrap().forget();
+        hooks
+            .credential_lock_attempted
+            .acquire()
+            .await
+            .unwrap()
+            .forget();
+        database
+            .wait_for_lock("SELECT id FROM credentials WHERE id")
+            .await;
+        sqlx::query("SELECT pg_sleep(1.1)")
+            .execute(&database.pool)
+            .await
+            .unwrap();
+        holder.commit().await.unwrap();
 
         assert_eq!(authorization.await.unwrap().unwrap(), None);
         assert_eq!(

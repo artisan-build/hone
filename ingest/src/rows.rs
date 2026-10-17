@@ -381,6 +381,7 @@ fn response_context(record: &Value) -> Option<Value> {
     let response = context
         .as_object()
         .and_then(|context| context.get("hone.response"))
+        .filter(|response| !response.is_null())
         .cloned()
         .or_else(|| {
             context
@@ -417,11 +418,39 @@ fn client_ip(record: &Value, headers: Option<&Value>) -> Option<String> {
 
 fn request_host(record: &Value, headers: Option<&Value>) -> Option<String> {
     let host = first_scalar(record, &["host", "hostname"]).or_else(|| header(headers, "host"))?;
-    let parsed = url::Url::parse(&format!("http://{host}")).ok()?;
-    let hostname = parsed.host_str()?.to_lowercase();
+    let authority = host.split(['/', '?', '#']).next()?.rsplit('@').next()?;
+    let hostname = if authority.starts_with('[') {
+        let closing_bracket = authority.find(']')?;
+        let suffix = &authority[closing_bracket + 1..];
+        if !valid_port_suffix(suffix) {
+            return None;
+        }
+        authority[..=closing_bracket].to_string()
+    } else if let Some((hostname, port)) = authority.rsplit_once(':') {
+        if hostname.contains(':') || !valid_port_suffix(&format!(":{port}")) {
+            return None;
+        }
+        hostname.to_string()
+    } else {
+        authority.to_string()
+    };
+    let hostname = hostname.to_lowercase();
     let hostname = hostname.trim_end_matches('.');
 
     (!hostname.is_empty()).then(|| hostname.to_string())
+}
+
+fn valid_port_suffix(suffix: &str) -> bool {
+    if suffix.is_empty() {
+        return true;
+    }
+    let Some(port) = suffix.strip_prefix(':') else {
+        return false;
+    };
+
+    !port.is_empty()
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && port.parse::<u16>().is_ok()
 }
 
 fn header(headers: Option<&Value>, name: &str) -> Option<String> {
@@ -432,6 +461,7 @@ fn header(headers: Option<&Value>, name: &str) -> Option<String> {
         }
         let value = match value {
             Value::Array(values) => values.first(),
+            Value::Object(values) => values.get("0"),
             value => Some(value),
         };
 
@@ -687,9 +717,9 @@ mod tests {
             )
             .await
             .unwrap();
-        let actual = sqlx::query(
+        let stored_rows = sqlx::query(
             r#"
-            SELECT app, record_type, deploy, occurred_at, normalized_key,
+            SELECT id, app, record_type, deploy, occurred_at, normalized_key,
                    duration_ms, payload, actor, ran_queries, response,
                    request_path, request_host, user_agent, client_ip, asn
             FROM raw_events
@@ -698,35 +728,60 @@ mod tests {
         )
         .fetch_all(&database.pool)
         .await
-        .unwrap()
-        .iter()
-        .map(|row| {
-            let occurred_at = row.get::<DateTime<Utc>, _>("occurred_at");
-            let payload = php_json_value(&row.get::<sqlx::types::Json<Value>, _>("payload").0);
-            let response = row
-                .get::<Option<sqlx::types::Json<Value>>, _>("response")
-                .map(|response| php_json_value(&response.0));
-            json!({
-                "app": row.get::<String, _>("app"),
-                "record_type": row.get::<String, _>("record_type"),
-                "deploy": row.get::<Option<String>, _>("deploy"),
-                "occurred_at": occurred_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
-                "normalized_key": row.get::<String, _>("normalized_key"),
-                "duration_ms": row.get::<Option<f64>, _>("duration_ms"),
-                "payload": payload,
-                "actor": row.get::<Option<String>, _>("actor"),
-                "ran_queries": row.get::<Option<bool>, _>("ran_queries"),
-                "response": response,
-                "request_path": row.get::<Option<String>, _>("request_path"),
-                "request_host": row.get::<Option<String>, _>("request_host"),
-                "user_agent": row.get::<Option<String>, _>("user_agent"),
-                "client_ip": row.get::<Option<String>, _>("client_ip"),
-                "asn": row.get::<Option<i64>, _>("asn"),
-            })
-        })
-        .collect::<Vec<_>>();
+        .unwrap();
+        assert_eq!(stored_rows.len(), expected.len());
 
-        assert_eq!(&actual, expected);
+        for (row, expected_row) in stored_rows.iter().zip(expected) {
+            let expected_payload = expected_row.get("payload").cloned().unwrap();
+            let expected_response = expected_row
+                .get("response")
+                .filter(|response| !response.is_null())
+                .cloned()
+                .map(sqlx::types::Json);
+            let json_matches = sqlx::query_scalar::<_, bool>(
+                "SELECT payload = $1 AND response IS NOT DISTINCT FROM $2 FROM raw_events WHERE id = $3",
+            )
+            .bind(sqlx::types::Json(expected_payload))
+            .bind(expected_response)
+            .bind(row.get::<i64, _>("id"))
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+            assert!(json_matches);
+        }
+
+        let actual = stored_rows
+            .iter()
+            .map(|row| {
+                let occurred_at = row.get::<DateTime<Utc>, _>("occurred_at");
+                json!({
+                    "app": row.get::<String, _>("app"),
+                    "record_type": row.get::<String, _>("record_type"),
+                    "deploy": row.get::<Option<String>, _>("deploy"),
+                    "occurred_at": occurred_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
+                    "normalized_key": row.get::<String, _>("normalized_key"),
+                    "duration_ms": row.get::<Option<f64>, _>("duration_ms"),
+                        "actor": row.get::<Option<String>, _>("actor"),
+                        "ran_queries": row.get::<Option<bool>, _>("ran_queries"),
+                    "request_path": row.get::<Option<String>, _>("request_path"),
+                    "request_host": row.get::<Option<String>, _>("request_host"),
+                    "user_agent": row.get::<Option<String>, _>("user_agent"),
+                    "client_ip": row.get::<Option<String>, _>("client_ip"),
+                    "asn": row.get::<Option<i64>, _>("asn"),
+                })
+            })
+            .collect::<Vec<_>>();
+        let expected_without_json = expected
+            .iter()
+            .map(|row| {
+                let mut row = row.as_object().cloned().unwrap();
+                row.shift_remove("payload");
+                row.shift_remove("response");
+                Value::Object(row)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected_without_json);
         database.cleanup().await;
     }
 }

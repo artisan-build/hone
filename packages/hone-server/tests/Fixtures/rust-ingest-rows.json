@@ -207,6 +207,53 @@
             "timestamp": 0.5
         },
         {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/idn-host",
+            "user": "",
+            "host": "bücher.example",
+            "time": "2026-06-09T12:00:23Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/abbreviated-host",
+            "user": "",
+            "host": "127.1",
+            "time": "2026-06-09T12:00:24Z"
+        },
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/numeric-object-headers",
+            "user": "",
+            "ip": "8.8.8.8",
+            "headers": {
+                "User-Agent": {
+                    "0": "numeric-object-agent"
+                },
+                "Host": {
+                    "0": "Headers.Example:443"
+                },
+                "CF-Connecting-IP": {
+                    "0": "1.1.1.1"
+                }
+            },
+            "context": {
+                "hone.response": null,
+                "hone": {
+                    "response": {
+                        "status": 201,
+                        "meta": {},
+                        "sequence": {
+                            "0": "x"
+                        }
+                    }
+                }
+            },
+            "time": "2026-06-09T12:00:25Z"
+        },
+        {
             "t": "query",
             "sql": "sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω ",
             "time": "2026-06-09T12:00:18Z"
@@ -866,6 +913,107 @@
             "user_agent": null,
             "client_ip": null,
             "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:23.000000Z",
+            "normalized_key": "GET /idn-host",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "bücher.example",
+                "time": "2026-06-09T12:00:23Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/idn-host"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/idn-host",
+            "request_host": "bücher.example",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:24.000000Z",
+            "normalized_key": "GET /abbreviated-host",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "host": "127.1",
+                "time": "2026-06-09T12:00:24Z",
+                "user": "",
+                "method": "GET",
+                "route_path": "/abbreviated-host"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/abbreviated-host",
+            "request_host": "127.1",
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:25.000000Z",
+            "normalized_key": "GET /numeric-object-headers",
+            "duration_ms": null,
+            "payload": {
+                "t": "request",
+                "ip": "8.8.8.8",
+                "time": "2026-06-09T12:00:25Z",
+                "user": "",
+                "method": "GET",
+                "context": {
+                    "hone": {
+                        "response": {
+                            "meta": [],
+                            "status": 201,
+                            "sequence": [
+                                "x"
+                            ]
+                        }
+                    },
+                    "hone.response": null
+                },
+                "headers": {
+                    "Host": [
+                        "Headers.Example:443"
+                    ],
+                    "User-Agent": [
+                        "numeric-object-agent"
+                    ],
+                    "CF-Connecting-IP": [
+                        "1.1.1.1"
+                    ]
+                },
+                "route_path": "/numeric-object-headers"
+            },
+            "actor": "guest",
+            "ran_queries": null,
+            "response": {
+                "meta": [],
+                "status": 201,
+                "sequence": [
+                    "x"
+                ]
+            },
+            "request_path": "/numeric-object-headers",
+            "request_host": "headers.example",
+            "user_agent": "numeric-object-agent",
+            "client_ip": "1.1.1.1",
+            "asn": 13335
         },
         {
             "app": "checkout",

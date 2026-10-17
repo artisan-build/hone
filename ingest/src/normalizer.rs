@@ -142,6 +142,11 @@ mod tests {
                 json!({"method": "GET", "route_path": "/posts/{post}"}),
                 "GET /posts/{post}",
             ),
+            (
+                "request",
+                json!({"method": "POST", "route_path": ""}),
+                "POST",
+            ),
             ("query", json!({"sql": "select 1"}), "select 1"),
             (
                 "queued-job",

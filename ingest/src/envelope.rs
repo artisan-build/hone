@@ -163,19 +163,17 @@ fn php_numeric_integer(value: &Value) -> Option<i64> {
     match value {
         Value::Number(number) => number
             .as_i64()
-            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
             .or_else(|| {
-                number
-                    .as_f64()
-                    .filter(|value| value.is_finite())
-                    .map(|value| value as i64)
-            }),
-        Value::String(value) => value
-            .trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|value| value.is_finite())
-            .map(|value| value as i64),
+                number.as_u64().map(|value| {
+                    if value <= i64::MAX as u64 {
+                        value as i64
+                    } else {
+                        php_float_to_integer(value as f64)
+                    }
+                })
+            })
+            .or_else(|| number.as_f64().map(php_float_to_integer)),
+        Value::String(value) => php_numeric_string_integer(value),
         _ => None,
     }
 }
@@ -187,25 +185,117 @@ fn php_cast_integer(value: &Value) -> i64 {
         Value::Number(number) => {
             php_numeric_integer(&Value::Number(number.clone())).unwrap_or_default()
         }
-        Value::String(value) => php_leading_number(value).unwrap_or_default() as i64,
+        Value::String(value) => php_leading_numeric_integer(value),
         Value::Array(values) => i64::from(!values.is_empty()),
         Value::Object(values) => i64::from(!values.is_empty()),
     }
 }
 
-fn php_leading_number(value: &str) -> Option<f64> {
+fn php_float_to_integer(value: f64) -> i64 {
+    if !value.is_finite() {
+        return 0;
+    }
+
+    const TWO_TO_63: f64 = 9_223_372_036_854_775_808.0;
+    const TWO_TO_64: f64 = 18_446_744_073_709_551_616.0;
+    let mut wrapped = value.trunc() % TWO_TO_64;
+    if wrapped < 0.0 {
+        wrapped += TWO_TO_64;
+    }
+    if wrapped >= TWO_TO_63 {
+        (wrapped - TWO_TO_64) as i64
+    } else {
+        wrapped as i64
+    }
+}
+
+fn php_numeric_string_integer(value: &str) -> Option<i64> {
+    let value = value.trim();
+    let prefix_length = numeric_prefix_length(value)?;
+    if prefix_length != value.len() {
+        return None;
+    }
+
+    Some(cast_numeric_string(&value[..prefix_length]))
+}
+
+fn php_leading_numeric_integer(value: &str) -> i64 {
     let value = value.trim_start();
-    if let Ok(number) = value.parse::<f64>() {
-        return Some(number);
+    numeric_prefix_length(value)
+        .map(|length| cast_numeric_string(&value[..length]))
+        .unwrap_or_default()
+}
+
+fn cast_numeric_string(value: &str) -> i64 {
+    if !value.contains(['.', 'e', 'E']) {
+        return clamp_decimal_integer(value);
     }
 
     value
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain(std::iter::once(value.len()))
-        .rev()
-        .filter(|index| *index > 0)
-        .find_map(|index| value[..index].parse::<f64>().ok())
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .map(|value| value as i64)
+        .unwrap_or_default()
+}
+
+fn clamp_decimal_integer(value: &str) -> i64 {
+    let (negative, digits) = match value.as_bytes().first() {
+        Some(b'-') => (true, &value[1..]),
+        Some(b'+') => (false, &value[1..]),
+        _ => (false, value),
+    };
+    let magnitude = digits.parse::<u128>().unwrap_or(u128::MAX);
+    if negative {
+        let minimum_magnitude = i64::MAX as u128 + 1;
+        if magnitude >= minimum_magnitude {
+            i64::MIN
+        } else {
+            -(magnitude as i64)
+        }
+    } else if magnitude > i64::MAX as u128 {
+        i64::MAX
+    } else {
+        magnitude as i64
+    }
+}
+
+fn numeric_prefix_length(value: &str) -> Option<usize> {
+    let bytes = value.as_bytes();
+    let mut index = usize::from(matches!(bytes.first(), Some(b'+') | Some(b'-')));
+    let mut digits = 0;
+
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        index += 1;
+        digits += 1;
+    }
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+
+    if matches!(bytes.get(index), Some(b'e') | Some(b'E')) {
+        let exponent_start = index;
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+') | Some(b'-')) {
+            index += 1;
+        }
+        let exponent_digits_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == exponent_digits_start {
+            index = exponent_start;
+        }
+    }
+
+    Some(index)
 }
 
 #[cfg(test)]
@@ -260,6 +350,45 @@ mod tests {
         assert_eq!(
             php_cast_string(&json!(1.2345678901234567)),
             "1.2345678901235"
+        );
+    }
+
+    #[test]
+    fn ports_php_64_bit_numeric_coercion_for_versions_and_losses() {
+        let numeric_overflow: Value = serde_json::from_str(
+            r#"{"envelope_version":9223372036854775808,"app":"checkout","losses":{"overflow_dropped_records":9223372036854775808}}"#,
+        )
+        .unwrap();
+        assert_eq!(version_from(&numeric_overflow), Ok(i64::MIN));
+        let envelope = from_value(&numeric_overflow).unwrap();
+        assert_eq!(envelope.overflow_dropped_records, 0);
+
+        let exact_string = json!({
+            "envelope_version": "9007199254740993",
+            "app": "checkout",
+            "losses": {"overflow_dropped_records": "9007199254740993"}
+        });
+        assert_eq!(version_from(&exact_string), Ok(9_007_199_254_740_993));
+        assert_eq!(
+            from_value(&exact_string).unwrap().overflow_dropped_records,
+            9_007_199_254_740_993
+        );
+
+        let string_overflow = json!({
+            "envelope_version": "9223372036854775808",
+            "app": "checkout",
+            "losses": {"overflow_dropped_records": "999999999999999999999999"}
+        });
+        assert_eq!(version_from(&string_overflow), Ok(i64::MAX));
+        assert_eq!(
+            from_value(&string_overflow)
+                .unwrap()
+                .overflow_dropped_records,
+            i64::MAX
+        );
+        assert_eq!(
+            php_numeric_string_integer("-9223372036854775809"),
+            Some(i64::MIN)
         );
     }
 
