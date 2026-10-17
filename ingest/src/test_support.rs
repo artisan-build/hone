@@ -1,0 +1,178 @@
+use std::str::FromStr;
+
+use chrono::{DateTime, Utc};
+use sha2::{Digest, Sha256};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use uuid::Uuid;
+
+pub(crate) struct TestDatabase {
+    pub pool: PgPool,
+    administrative_pool: PgPool,
+    schema: String,
+}
+
+impl TestDatabase {
+    pub async fn new() -> Self {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| "postgres://root@127.0.0.1:5432/hone_rust_test".to_string());
+        let options = PgConnectOptions::from_str(&database_url).unwrap_or_else(|_| {
+            panic!("TEST_DATABASE_URL or DATABASE_URL must be a PostgreSQL URL")
+        });
+        let administrative_pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(options.clone())
+            .await
+            .unwrap_or_else(|_| {
+                panic!("Rust integration tests require their configured PostgreSQL database")
+            });
+        let schema = format!("test_{}", Uuid::new_v4().simple());
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&administrative_pool)
+            .await
+            .unwrap();
+
+        let connection_schema = schema.clone();
+        let pool = PgPoolOptions::new()
+            .max_connections(10)
+            .after_connect(move |connection, _metadata| {
+                let schema = connection_schema.clone();
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('search_path', $1, false)")
+                        .bind(schema)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect_with(options)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE credentials (
+                id uuid PRIMARY KEY,
+                kind text NOT NULL,
+                purpose text,
+                subject_type text NOT NULL,
+                subject_ref text NOT NULL,
+                user_id text,
+                secret_hash text,
+                status text NOT NULL DEFAULT 'active',
+                revoked_at timestamptz,
+                expires_at timestamptz,
+                last_used_at timestamptz,
+                created_at timestamptz,
+                updated_at timestamptz
+            );
+            CREATE TABLE credential_protocol_bindings (credential_id uuid PRIMARY KEY);
+            CREATE TABLE offboarded_subjects (
+                subject_type text NOT NULL,
+                subject_ref text NOT NULL,
+                user_id text NOT NULL
+            );
+            CREATE TABLE onboarding_tokens (
+                id uuid PRIMARY KEY,
+                email text,
+                consumed_at timestamptz,
+                durable_credential_id uuid,
+                updated_at timestamptz
+            );
+            CREATE TABLE credential_audit_events (
+                id uuid PRIMARY KEY,
+                event text NOT NULL,
+                code_id uuid,
+                credential_id uuid,
+                credential_authorization_id uuid,
+                superseded_by_credential_id uuid,
+                provider text,
+                deployment text,
+                environment text,
+                actor_type text,
+                actor_ref text,
+                recipient text,
+                code_ttl_seconds integer,
+                credential_expires_at timestamptz,
+                reason_code text,
+                note text,
+                occurred_at timestamptz,
+                created_at timestamptz
+            );
+            CREATE TABLE raw_events (
+                id bigserial PRIMARY KEY,
+                app varchar(255) NOT NULL,
+                record_type varchar(255) NOT NULL,
+                deploy varchar(255),
+                occurred_at timestamptz NOT NULL,
+                normalized_key varchar(255) NOT NULL,
+                duration_ms double precision,
+                payload jsonb NOT NULL,
+                actor varchar(255),
+                ran_queries boolean,
+                response jsonb,
+                request_path text,
+                request_host varchar(255),
+                user_agent text,
+                client_ip varchar(45),
+                asn bigint,
+                created_at timestamptz NOT NULL DEFAULT now()
+            );
+            CREATE TABLE ingest_counters (
+                id bigserial PRIMARY KEY,
+                app varchar(255) NOT NULL,
+                deploy varchar(255),
+                overflow_dropped_records bigint NOT NULL DEFAULT 0,
+                failed_delivery_records bigint NOT NULL DEFAULT 0,
+                created_at timestamptz NOT NULL,
+                updated_at timestamptz NOT NULL
+            );
+            CREATE UNIQUE INDEX ingest_counters_app_deploy_unique
+                ON ingest_counters (app, deploy) NULLS NOT DISTINCT;
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        Self {
+            pool,
+            administrative_pool,
+            schema,
+        }
+    }
+
+    pub async fn insert_credential(&self, secret: &str, expires_at: Option<DateTime<Utc>>) -> Uuid {
+        let credential_id = Uuid::new_v4();
+        let secret_hash = hex::encode(Sha256::digest(secret.as_bytes()));
+        sqlx::query(
+            r#"
+            INSERT INTO credentials (
+                id, kind, purpose, subject_type, subject_ref, user_id,
+                secret_hash, status, revoked_at, expires_at, last_used_at,
+                created_at, updated_at
+            ) VALUES (
+                $1, 'bearer', 'consumption', 'installation', 'checkout', NULL,
+                $2, 'active', NULL, $3, NULL, now(), now()
+            )
+            "#,
+        )
+        .bind(credential_id)
+        .bind(secret_hash)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+
+        credential_id
+    }
+
+    pub async fn cleanup(self) {
+        self.pool.close().await;
+        sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
+            .execute(&self.administrative_pool)
+            .await
+            .unwrap();
+        self.administrative_pool.close().await;
+    }
+}

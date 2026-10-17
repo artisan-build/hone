@@ -1,0 +1,83 @@
+name: rust ingest
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+      - master
+      - workos
+    paths:
+      - 'ingest/**'
+      - 'packages/hone-contracts/src/Envelope.php'
+      - 'packages/hone-server/src/Jobs/ProcessTelemetryBatch.php'
+      - 'packages/hone-server/src/Normalizer.php'
+      - 'packages/hone-server/src/Support/IptoAsnLookup.php'
+      - 'packages/hone-server/src/Support/PublicIp.php'
+      - 'packages/hone-server/tests/Fixtures/ip2asn.tsv'
+      - 'packages/hone-server/tests/Fixtures/rust-ingest-rows.json'
+      - 'packages/hone-server/tests/RustIngestParityFixtureTest.php'
+      - '.github/workflows/rust-ingest.yml'
+      - 'composer.lock'
+  pull_request:
+    branches:
+      - develop
+      - main
+      - master
+      - workos
+    paths:
+      - 'ingest/**'
+      - 'packages/hone-contracts/src/Envelope.php'
+      - 'packages/hone-server/src/Jobs/ProcessTelemetryBatch.php'
+      - 'packages/hone-server/src/Normalizer.php'
+      - 'packages/hone-server/src/Support/IptoAsnLookup.php'
+      - 'packages/hone-server/src/Support/PublicIp.php'
+      - 'packages/hone-server/tests/Fixtures/ip2asn.tsv'
+      - 'packages/hone-server/tests/Fixtures/rust-ingest-rows.json'
+      - 'packages/hone-server/tests/RustIngestParityFixtureTest.php'
+      - '.github/workflows/rust-ingest.yml'
+      - 'composer.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  rust-ingest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: root
+          POSTGRES_DB: hone_rust_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgres://root@127.0.0.1:5432/hone_rust_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path ingest/Cargo.toml --check
+
+      - name: Run Clippy
+        run: cargo clippy --locked --manifest-path ingest/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --locked --manifest-path ingest/Cargo.toml --all-targets --all-features

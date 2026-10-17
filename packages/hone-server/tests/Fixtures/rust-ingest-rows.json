@@ -1,0 +1,552 @@
+{
+    "app": "checkout",
+    "deploy": "abc123",
+    "sent_at": "2026-06-09T12:00:00+00:00",
+    "records": [
+        {
+            "t": "request",
+            "method": "GET",
+            "route_path": "/guest",
+            "timestamp": "2026-06-09T12:00:01.123456+00:00",
+            "duration": 12000,
+            "queries": "true",
+            "user": "",
+            "ip": "8.8.8.8",
+            "headers": {
+                "CF-Connecting-IP": [
+                    "1.1.1.1"
+                ],
+                "Host": [
+                    "Checkout.Example.com:443"
+                ],
+                "User-Agent": [
+                    "fixture-agent"
+                ]
+            },
+            "context": {
+                "hone.response": {
+                    "status": 200,
+                    "cache_control": "no-cache"
+                }
+            }
+        },
+        {
+            "t": "http-request",
+            "method": "POST",
+            "uri": "/human",
+            "ts": 1781006402000,
+            "duration_ms": 4.5,
+            "authenticatedUserId": "42",
+            "remoteIp": "9.9.9.9",
+            "userAgent": "must-not-be-stored-for-human"
+        },
+        {
+            "t": "query",
+            "sql": 1.0,
+            "occurred_at": "2026-06-09 12:00:03+00:00"
+        },
+        {
+            "t": "queued-job",
+            "name": "SendWelcomeEmail",
+            "time": "2026-06-09T12:00:04Z"
+        },
+        {
+            "t": "job-attempt",
+            "name": "SendWelcomeEmail",
+            "queries": 2,
+            "time": "2026-06-09T12:00:05Z"
+        },
+        {
+            "t": "command",
+            "name": "reports:build",
+            "ranQueries": "false",
+            "time": "2026-06-09T12:00:06Z"
+        },
+        {
+            "t": "artisan-command",
+            "name": "cache:clear",
+            "hasQueries": "yes",
+            "time": "2026-06-09T12:00:07Z"
+        },
+        {
+            "t": "scheduled-task",
+            "name": "backup:run",
+            "queries": 0,
+            "time": "2026-06-09T12:00:08Z"
+        },
+        {
+            "t": "scheduled",
+            "name": "legacy:schedule",
+            "has_queries": 1,
+            "time": "2026-06-09T12:00:09Z"
+        },
+        {
+            "t": "exception",
+            "class": "RuntimeException",
+            "file": "/app/Test.php",
+            "line": 42,
+            "time": "2026-06-09T12:00:10Z"
+        },
+        {
+            "t": "outgoing-request",
+            "method": "GET",
+            "url": "https://api.example.test/items",
+            "time": "2026-06-09T12:00:11Z"
+        },
+        {
+            "t": "log",
+            "level": "error",
+            "time": "2026-06-09T12:00:12Z"
+        },
+        {
+            "t": "user",
+            "id": false,
+            "time": "2026-06-09T12:00:13Z"
+        },
+        {
+            "t": "cache-event",
+            "store": "redis",
+            "type": "hit",
+            "time": "2026-06-09T12:00:14Z"
+        },
+        {
+            "t": "custom-event",
+            "value": "opaque",
+            "time": "2026-06-09T12:00:15Z"
+        },
+        {
+            "t": [
+                "not-scalar"
+            ],
+            "time": "2026-06-09T12:00:16Z"
+        },
+        [
+            "list-shaped",
+            "record"
+        ],
+        {
+            "t": "query",
+            "sql": "sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω ",
+            "time": "2026-06-09T12:00:18Z"
+        }
+    ],
+    "expected": [
+        {
+            "app": "checkout",
+            "record_type": "request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:01.000000Z",
+            "normalized_key": "GET /guest",
+            "duration_ms": 12.0,
+            "payload": {
+                "t": "request",
+                "ip": "8.8.8.8",
+                "user": "",
+                "method": "GET",
+                "context": {
+                    "hone.response": {
+                        "status": 200,
+                        "cache_control": "no-cache"
+                    }
+                },
+                "headers": {
+                    "Host": [
+                        "Checkout.Example.com:443"
+                    ],
+                    "User-Agent": [
+                        "fixture-agent"
+                    ],
+                    "CF-Connecting-IP": [
+                        "1.1.1.1"
+                    ]
+                },
+                "queries": "true",
+                "duration": 12000,
+                "timestamp": "2026-06-09T12:00:01.123456+00:00",
+                "route_path": "/guest"
+            },
+            "actor": "guest",
+            "ran_queries": true,
+            "response": {
+                "status": 200,
+                "cache_control": "no-cache"
+            },
+            "request_path": "/guest",
+            "request_host": "checkout.example.com",
+            "user_agent": "fixture-agent",
+            "client_ip": "1.1.1.1",
+            "asn": 13335
+        },
+        {
+            "app": "checkout",
+            "record_type": "http-request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:02.000000Z",
+            "normalized_key": "http-request",
+            "duration_ms": 4.5,
+            "payload": {
+                "t": "http-request",
+                "ts": 1781006402000,
+                "uri": "/human",
+                "method": "POST",
+                "remoteIp": "9.9.9.9",
+                "userAgent": "must-not-be-stored-for-human",
+                "duration_ms": 4.5,
+                "authenticatedUserId": "42"
+            },
+            "actor": "human",
+            "ran_queries": null,
+            "response": null,
+            "request_path": "/human",
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": "9.9.9.9",
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "query",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:03.000000Z",
+            "normalized_key": "1",
+            "duration_ms": null,
+            "payload": {
+                "t": "query",
+                "sql": 1,
+                "occurred_at": "2026-06-09 12:00:03+00:00"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "queued-job",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:04.000000Z",
+            "normalized_key": "SendWelcomeEmail",
+            "duration_ms": null,
+            "payload": {
+                "t": "queued-job",
+                "name": "SendWelcomeEmail",
+                "time": "2026-06-09T12:00:04Z"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "job-attempt",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:05.000000Z",
+            "normalized_key": "SendWelcomeEmail",
+            "duration_ms": null,
+            "payload": {
+                "t": "job-attempt",
+                "name": "SendWelcomeEmail",
+                "time": "2026-06-09T12:00:05Z",
+                "queries": 2
+            },
+            "actor": "job",
+            "ran_queries": true,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "command",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:06.000000Z",
+            "normalized_key": "reports:build",
+            "duration_ms": null,
+            "payload": {
+                "t": "command",
+                "name": "reports:build",
+                "time": "2026-06-09T12:00:06Z",
+                "ranQueries": "false"
+            },
+            "actor": "command",
+            "ran_queries": false,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "artisan-command",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:07.000000Z",
+            "normalized_key": "artisan-command",
+            "duration_ms": null,
+            "payload": {
+                "t": "artisan-command",
+                "name": "cache:clear",
+                "time": "2026-06-09T12:00:07Z",
+                "hasQueries": "yes"
+            },
+            "actor": "command",
+            "ran_queries": true,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "scheduled-task",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:08.000000Z",
+            "normalized_key": "backup:run",
+            "duration_ms": null,
+            "payload": {
+                "t": "scheduled-task",
+                "name": "backup:run",
+                "time": "2026-06-09T12:00:08Z",
+                "queries": 0
+            },
+            "actor": "scheduled",
+            "ran_queries": false,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "scheduled",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:09.000000Z",
+            "normalized_key": "scheduled",
+            "duration_ms": null,
+            "payload": {
+                "t": "scheduled",
+                "name": "legacy:schedule",
+                "time": "2026-06-09T12:00:09Z",
+                "has_queries": 1
+            },
+            "actor": "scheduled",
+            "ran_queries": true,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "exception",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:10.000000Z",
+            "normalized_key": "RuntimeException /app/Test.php:42",
+            "duration_ms": null,
+            "payload": {
+                "t": "exception",
+                "file": "/app/Test.php",
+                "line": 42,
+                "time": "2026-06-09T12:00:10Z",
+                "class": "RuntimeException"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "outgoing-request",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:11.000000Z",
+            "normalized_key": "GET https://api.example.test/items",
+            "duration_ms": null,
+            "payload": {
+                "t": "outgoing-request",
+                "url": "https://api.example.test/items",
+                "time": "2026-06-09T12:00:11Z",
+                "method": "GET"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "log",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:12.000000Z",
+            "normalized_key": "error",
+            "duration_ms": null,
+            "payload": {
+                "t": "log",
+                "time": "2026-06-09T12:00:12Z",
+                "level": "error"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "user",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:13.000000Z",
+            "normalized_key": "user",
+            "duration_ms": null,
+            "payload": {
+                "t": "user",
+                "id": false,
+                "time": "2026-06-09T12:00:13Z"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "cache-event",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:14.000000Z",
+            "normalized_key": "redis:hit",
+            "duration_ms": null,
+            "payload": {
+                "t": "cache-event",
+                "time": "2026-06-09T12:00:14Z",
+                "type": "hit",
+                "store": "redis"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "custom-event",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:15.000000Z",
+            "normalized_key": "custom-event",
+            "duration_ms": null,
+            "payload": {
+                "t": "custom-event",
+                "time": "2026-06-09T12:00:15Z",
+                "value": "opaque"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "unknown",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:16.000000Z",
+            "normalized_key": "unknown",
+            "duration_ms": null,
+            "payload": {
+                "t": [
+                    "not-scalar"
+                ],
+                "time": "2026-06-09T12:00:16Z"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "unknown",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:00.000000Z",
+            "normalized_key": "unknown",
+            "duration_ms": null,
+            "payload": [
+                "list-shaped",
+                "record"
+            ],
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        },
+        {
+            "app": "checkout",
+            "record_type": "query",
+            "deploy": "abc123",
+            "occurred_at": "2026-06-09T12:00:18.000000Z",
+            "normalized_key": "sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω s#ea955cbb48b54b32d4ea9d161004e8df65033356a1ceaf3257f0f9e441837535",
+            "duration_ms": null,
+            "payload": {
+                "t": "query",
+                "sql": "sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω sélect Ω ",
+                "time": "2026-06-09T12:00:18Z"
+            },
+            "actor": null,
+            "ran_queries": null,
+            "response": null,
+            "request_path": null,
+            "request_host": null,
+            "user_agent": null,
+            "client_ip": null,
+            "asn": null
+        }
+    ]
+}
