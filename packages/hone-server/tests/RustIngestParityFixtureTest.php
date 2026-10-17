@@ -7,6 +7,10 @@ use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Support\IptoAsnLookup;
 
 it('keeps the committed Rust row fixture equal to the real PHP persistence path', function (): void {
+    if (PHP_OS_FAMILY === 'Linux') {
+        expect(setlocale(LC_CTYPE, 'C'))->toBe('C');
+    }
+
     $path = __DIR__.'/Fixtures/rust-ingest-rows.json';
     $source = (string) file_get_contents($path);
     $fixture = json_decode($source, true, flags: JSON_THROW_ON_ERROR);
@@ -43,6 +47,10 @@ it('keeps the committed Rust row fixture equal to the real PHP persistence path'
         ->all();
 
     if (env('HONE_UPDATE_RUST_INGEST_FIXTURE') === '1') {
+        if (PHP_OS_FAMILY === 'Darwin') {
+            $this->fail('Regenerate the Rust ingest fixture only on Linux PHP 8.4 with PostgreSQL 16.');
+        }
+
         $expectedPosition = strpos($source, '    "expected":');
 
         expect($expectedPosition)->not->toBeFalse();
@@ -64,5 +72,19 @@ it('keeps the committed Rust row fixture equal to the real PHP persistence path'
         $this->fail('The Rust ingest fixture was regenerated. Review and commit it, then rerun without HONE_UPDATE_RUST_INGEST_FIXTURE.');
     }
 
-    expect($actual)->toBe($fixture['expected']);
+    $expected = $fixture['expected'];
+
+    if (PHP_OS_FAMILY === 'Darwin') {
+        // PHP delegates parse_url control-byte classification to libc. Darwin
+        // drops these valid UTF-8 rows; Linux production and CI persist them.
+        $darwinDroppedPaths = $fixture['darwin_php_control_byte_dropped_request_paths'];
+        $expected = array_values(array_filter(
+            $expected,
+            static function (array $row) use ($darwinDroppedPaths): bool {
+                return ! in_array($row['request_path'], $darwinDroppedPaths, true);
+            },
+        ));
+    }
+
+    expect($actual)->toBe($expected);
 });

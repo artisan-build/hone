@@ -32,15 +32,15 @@ impl TestDatabase {
             .await
             .unwrap();
 
-        let connection_schema = schema.clone();
+        let connection_search_path = format!("{schema}, pg_catalog");
         let test_options = options.application_name(&schema);
         let pool = PgPoolOptions::new()
             .max_connections(10)
             .after_connect(move |connection, _metadata| {
-                let schema = connection_schema.clone();
+                let search_path = connection_search_path.clone();
                 Box::pin(async move {
                     sqlx::query("SELECT set_config('search_path', $1, false)")
-                        .bind(schema)
+                        .bind(search_path)
                         .execute(connection)
                         .await?;
                     Ok(())

@@ -435,9 +435,12 @@ fn request_host(record: &Value, headers: Option<&Value>) -> Result<Option<String
     let Some(mut hostname) = php_parse_url_host(host.as_bytes()) else {
         return Ok(None);
     };
+    if hostname.is_empty() {
+        return Ok(None);
+    }
 
     for byte in &mut hostname {
-        if (0x00..=0x1f).contains(byte) || (0x7f..=0x9f).contains(byte) {
+        if (0x00..=0x1f).contains(byte) || *byte == 0x7f {
             *byte = b'_';
         } else {
             byte.make_ascii_lowercase();
@@ -445,9 +448,6 @@ fn request_host(record: &Value, headers: Option<&Value>) -> Result<Option<String
     }
     while hostname.last() == Some(&b'.') {
         hostname.pop();
-    }
-    if hostname.is_empty() {
-        return Ok(None);
     }
 
     String::from_utf8(hostname)
@@ -473,7 +473,8 @@ fn php_parse_url_host(host: &[u8]) -> Option<Vec<u8>> {
     if authority.first() == Some(&b'[')
         && let Some(closing_bracket) = authority.iter().position(|byte| *byte == b']')
         && (closing_bracket + 1 == authority.len()
-            || authority.get(closing_bracket + 1) == Some(&b':'))
+            || (authority.get(closing_bracket + 1) == Some(&b':')
+                && !authority[closing_bracket + 2..].contains(&b':')))
     {
         let port = if closing_bracket + 1 == authority.len() {
             &[][..]
@@ -512,7 +513,7 @@ fn php_url_port_is_valid(port: &[u8]) -> bool {
         index += 1;
     }
 
-    index > digits_start && !negative && value <= u32::from(u16::MAX)
+    index > digits_start && (!negative || value == 0) && value <= u32::from(u16::MAX)
 }
 
 fn header(headers: Option<&Value>, name: &str) -> Option<String> {
@@ -725,6 +726,10 @@ mod tests {
             ("[::1]x", Some("[:")),
             ("a\nb.example", Some("a_b.example")),
             ("x:000080", None),
+            ("BÜCHER.example", Some("bÜcher.example")),
+            ("ĞÜ.com", Some("ĞÜ.com")),
+            ("Ä.com", Some("Ä.com")),
+            ("ā.com", Some("ā.com")),
             ("bücher.example", Some("bücher.example")),
             ("127.1", Some("127.1")),
             ("Example.COM:443", Some("example.com")),
@@ -732,6 +737,13 @@ mod tests {
             ("Example.COM#fragment", Some("example.com")),
             ("example.test:bad", None),
             ("example.test:65536", None),
+            (".", Some("")),
+            ("..", Some("")),
+            ("...", Some("")),
+            ("[a]:80:90", Some("[a]:80")),
+            ("[::1]:80:90", Some("[::1]:80")),
+            ("x:-0", Some("x")),
+            ("x:-00", Some("x")),
         ] {
             let row = build_row(
                 "checkout",
@@ -743,22 +755,6 @@ mod tests {
             .unwrap()
             .unwrap();
             assert_eq!(row.request_host.as_deref(), expected, "{host:?}");
-        }
-
-        for host in ["BÜCHER.example", "ĞÜ.com"] {
-            assert!(
-                matches!(
-                    build_row(
-                        "checkout",
-                        None,
-                        "2026-06-09T12:00:00Z",
-                        &json!({"t": "request", "host": host, "user": ""}),
-                        &AsnLookup::default(),
-                    ),
-                    Err(RowBuildError::InvalidRequestHostEncoding)
-                ),
-                "{host:?}"
-            );
         }
     }
 

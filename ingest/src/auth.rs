@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Timelike, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPool;
 use sqlx::{Postgres, Row, Transaction};
@@ -220,10 +220,12 @@ impl Authenticator {
             return Ok(false);
         }
 
-        let now: NaiveDateTime = sqlx::query_scalar("SELECT clock_timestamp() AT TIME ZONE 'UTC'")
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+        let predicate_now: NaiveDateTime =
+            sqlx::query_scalar("SELECT clock_timestamp() AT TIME ZONE 'UTC'")
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+        let stored_now = truncate_to_whole_second(predicate_now);
 
         let updated = sqlx::query(
             r#"
@@ -233,19 +235,25 @@ impl Authenticator {
               AND last_used_at IS NULL
               AND status = 'active'
               AND revoked_at IS NULL
-              AND (expires_at IS NULL OR expires_at > $2)
+              AND (expires_at IS NULL OR expires_at > $3)
             "#,
         )
         .bind(credential_id)
-        .bind(now)
+        .bind(stored_now)
+        .bind(predicate_now)
         .execute(&mut *transaction)
         .await
         .map_err(|error| SafeDatabaseError::from_sqlx(&error))?
         .rows_affected();
 
         if updated != 1 {
-            let authenticated =
-                Self::record_subsequent_use_in(&mut transaction, credential_id).await?;
+            let authenticated = Self::record_subsequent_use_in(
+                &mut transaction,
+                credential_id,
+                predicate_now,
+                stored_now,
+            )
+            .await?;
             if authenticated {
                 transaction
                     .commit()
@@ -278,7 +286,7 @@ impl Authenticator {
                 "#,
             )
             .bind(&code_ids)
-            .bind(now)
+            .bind(stored_now)
             .bind(credential_id)
             .execute(&mut *transaction)
             .await
@@ -331,7 +339,7 @@ impl Authenticator {
         .bind(&self.audit_context.environment)
         .bind(credential_id.to_string())
         .bind(recipient)
-        .bind(now)
+        .bind(stored_now)
         .execute(&mut *transaction)
         .await
         .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
@@ -366,10 +374,12 @@ impl Authenticator {
             return Ok(false);
         }
 
-        let now: NaiveDateTime = sqlx::query_scalar("SELECT clock_timestamp() AT TIME ZONE 'UTC'")
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+        let predicate_now: NaiveDateTime =
+            sqlx::query_scalar("SELECT clock_timestamp() AT TIME ZONE 'UTC'")
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|error| SafeDatabaseError::from_sqlx(&error))?;
+        let stored_now = truncate_to_whole_second(predicate_now);
         let affected = sqlx::query(
             r#"
             UPDATE credentials
@@ -378,11 +388,12 @@ impl Authenticator {
             WHERE id = $1
               AND status = 'active'
               AND revoked_at IS NULL
-              AND (expires_at IS NULL OR expires_at > $2)
+              AND (expires_at IS NULL OR expires_at > $3)
             "#,
         )
         .bind(credential_id)
-        .bind(now)
+        .bind(stored_now)
+        .bind(predicate_now)
         .execute(&mut *transaction)
         .await
         .map_err(|error| SafeDatabaseError::from_sqlx(&error))?
@@ -406,19 +417,23 @@ impl Authenticator {
     async fn record_subsequent_use_in(
         transaction: &mut Transaction<'_, Postgres>,
         credential_id: Uuid,
+        predicate_now: NaiveDateTime,
+        stored_now: NaiveDateTime,
     ) -> Result<bool, SafeDatabaseError> {
         let affected = sqlx::query(
             r#"
             UPDATE credentials
-            SET last_used_at = clock_timestamp() AT TIME ZONE 'UTC',
-                updated_at = clock_timestamp() AT TIME ZONE 'UTC'
+            SET last_used_at = $2,
+                updated_at = $2
             WHERE id = $1
               AND status = 'active'
               AND revoked_at IS NULL
-              AND (expires_at IS NULL OR expires_at > clock_timestamp() AT TIME ZONE 'UTC')
+              AND (expires_at IS NULL OR expires_at > $3)
             "#,
         )
         .bind(credential_id)
+        .bind(stored_now)
+        .bind(predicate_now)
         .execute(&mut **transaction)
         .await
         .map_err(|error| SafeDatabaseError::from_sqlx(&error))?
@@ -522,6 +537,10 @@ impl Authenticator {
             hooks.credential_lock_attempted.add_permits(1);
         }
     }
+}
+
+fn truncate_to_whole_second(timestamp: NaiveDateTime) -> NaiveDateTime {
+    timestamp.with_nanosecond(0).unwrap_or(timestamp)
 }
 
 fn code_identity(row: &sqlx::postgres::PgRow) -> Result<(Uuid, Option<String>), SafeDatabaseError> {
@@ -721,6 +740,79 @@ mod tests {
                 .unwrap(),
             1
         );
+        database.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn truncates_php_parity_write_timestamps_before_postgres_persists_them() {
+        let database = TestDatabase::new().await;
+        let credential = database.insert_credential("secret", None).await;
+        let code = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO onboarding_tokens (id, email, consumed_at, durable_credential_id, updated_at) VALUES ($1, NULL, NULL, $2, now())",
+        )
+        .bind(code)
+        .bind(credential)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(
+            r#"
+            CREATE FUNCTION clock_timestamp() RETURNS timestamp with time zone AS $$
+                SELECT TIMESTAMPTZ '2026-06-09 11:59:59.600000+00'
+            $$ LANGUAGE sql;
+            "#,
+        )
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+        let rounded: NaiveDateTime = sqlx::query_scalar(
+            "SELECT CAST(TIMESTAMP '2026-06-09 11:59:59.600000' AS timestamp(0))",
+        )
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+        let expected =
+            NaiveDateTime::parse_from_str("2026-06-09 11:59:59", "%Y-%m-%d %H:%M:%S").unwrap();
+        assert_eq!(
+            rounded,
+            NaiveDateTime::parse_from_str("2026-06-09 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+        );
+
+        let authenticator = Authenticator::new(database.pool.clone(), 0, context());
+        assert!(authenticator.authorize("secret").await.unwrap().is_some());
+
+        let credential_row =
+            sqlx::query("SELECT last_used_at, updated_at FROM credentials WHERE id = $1")
+                .bind(credential)
+                .fetch_one(&database.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            credential_row.get::<NaiveDateTime, _>("last_used_at"),
+            expected
+        );
+        assert_eq!(
+            credential_row.get::<NaiveDateTime, _>("updated_at"),
+            expected
+        );
+
+        let code_row =
+            sqlx::query("SELECT consumed_at, updated_at FROM onboarding_tokens WHERE id = $1")
+                .bind(code)
+                .fetch_one(&database.pool)
+                .await
+                .unwrap();
+        assert_eq!(code_row.get::<NaiveDateTime, _>("consumed_at"), expected);
+        assert_eq!(code_row.get::<NaiveDateTime, _>("updated_at"), expected);
+
+        let audit = sqlx::query("SELECT occurred_at, created_at FROM credential_audit_events")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+        assert_eq!(audit.get::<NaiveDateTime, _>("occurred_at"), expected);
+        assert_eq!(audit.get::<NaiveDateTime, _>("created_at"), expected);
         database.cleanup().await;
     }
 
