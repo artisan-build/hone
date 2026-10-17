@@ -11,8 +11,9 @@ to create resources, deploy, activate discovery, or run production traffic or lo
 Create a second Laravel Cloud APPLICATION, conceptually `hone-ingest`, from the same
 `artisan-build/hone` repository. Its `root_directory=ingest`; it is not a second PHP environment.
 The Cargo package must already be present on the selected remote branch before creation.
-Both `root_directory` and region are create-time-only. Confirm the intended region at creation,
-and verify Cargo auto-detection and the generated `cargo build --release` build command before
+Both `root_directory` and region are create-time-only. Create the Rust application in the same
+region as the primary PHP application and its existing database/schema. Verify Cargo
+auto-detection and the generated `cargo build --release` build command before
 the first deploy. Stop if Cloud detects PHP instead.
 
 Attach the EXISTING PHP production database schema to the Rust environment. Do not create a
