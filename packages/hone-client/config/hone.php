@@ -5,6 +5,7 @@ declare(strict_types=1);
 return [
     'url' => env('HONE_URL'),
     'token' => env('HONE_TOKEN'),
+    'discover_ingest' => env('HONE_DISCOVER_INGEST', true),
     'app' => env('HONE_APP', env('APP_NAME', 'laravel')),
     'deploy' => env('NIGHTWATCH_DEPLOY'),
     'buffer' => (int) env('HONE_BUFFER', 500),

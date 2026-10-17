@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\HoneClient\Commands;
 
+use ArtisanBuild\HoneClient\HoneEndpoint;
 use ArtisanBuild\HoneContracts\Envelope;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\Factory;
@@ -15,8 +16,10 @@ final class UpdateCommand extends Command
 
     protected $description = 'Check whether this client is compatible with the configured Hone server.';
 
-    public function __construct(private readonly Factory $http)
-    {
+    public function __construct(
+        private readonly Factory $http,
+        private readonly HoneEndpoint $endpoint,
+    ) {
         parent::__construct();
     }
 
@@ -32,10 +35,9 @@ final class UpdateCommand extends Command
 
         try {
             $response = $this->http
-                ->withToken((string) config('hone.token'))
                 ->connectTimeout((float) config('hone.connect_timeout'))
                 ->timeout((float) config('hone.timeout'))
-                ->get($this->capabilitiesUrl((string) $url));
+                ->get($this->endpoint->capabilitiesUrl());
         } catch (Throwable $e) {
             $this->error('Could not reach your Hone server: '.$e->getMessage());
 
@@ -73,16 +75,5 @@ final class UpdateCommand extends Command
         $this->info("Your Hone server understands envelope v{$current}. You're good.");
 
         return self::SUCCESS;
-    }
-
-    private function capabilitiesUrl(string $url): string
-    {
-        $url = rtrim($url, '/');
-
-        if (str_ends_with($url, '/ingest')) {
-            $url = substr($url, 0, -strlen('/ingest'));
-        }
-
-        return $url.'/capabilities';
     }
 }

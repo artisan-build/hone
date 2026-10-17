@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneClient;
 
 use ArtisanBuild\HoneClient\Commands\InstallCommand;
+use ArtisanBuild\HoneClient\Commands\RefreshIngestDiscoveryCommand;
 use ArtisanBuild\HoneClient\Commands\UpdateCommand;
 use ArtisanBuild\HoneClient\Http\Middleware\CaptureResponseContext;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
@@ -13,6 +14,7 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Nightwatch\Core;
 use Psr\Log\LoggerInterface;
@@ -31,6 +33,16 @@ final class HoneClientServiceProvider extends ServiceProvider
             config()->set('nightwatch.enabled', false);
         }
 
+        $this->app->bind(HoneEndpoint::class, fn (): HoneEndpoint => new HoneEndpoint((string) config('hone.url')));
+
+        $this->app->bind(IngestDiscovery::class, function (Application $app): IngestDiscovery {
+            return new IngestDiscovery(
+                endpoint: $app->make(HoneEndpoint::class),
+                cache: $this->resolveCache($app),
+                enabled: (bool) config('hone.discover_ingest'),
+            );
+        });
+
         $this->app->bind(HoneIngest::class, function (Application $app): HoneIngest {
             $runningInConsole = $app->runningInConsole();
 
@@ -48,6 +60,7 @@ final class HoneClientServiceProvider extends ServiceProvider
                 logger: $app->make(LoggerInterface::class),
                 nightwatch: $app->make(Core::class),
                 cache: $this->resolveCache($app),
+                discovery: $app->make(IngestDiscovery::class),
             );
         });
     }
@@ -95,8 +108,19 @@ final class HoneClientServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 InstallCommand::class,
+                RefreshIngestDiscoveryCommand::class,
                 UpdateCommand::class,
             ]);
+
+            if ((bool) config('hone.discover_ingest')
+                && filled(config('hone.url'))
+                && filled(config('hone.token'))) {
+                $this->app->booted(function (): void {
+                    Schedule::command(RefreshIngestDiscoveryCommand::class)
+                        ->hourly()
+                        ->withoutOverlapping();
+                });
+            }
         }
 
         $this->app->booted(function (): void {

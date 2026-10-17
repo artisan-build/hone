@@ -20,7 +20,8 @@ Hone app.
   its ingest as a swappable object on the container-bound `Core`; `hone-client` replaces it
   with one that batches records and POSTs them over HTTPS to your Hone server. No fork of
   `laravel/nightwatch`, no daemon, no on-disk buffer.
-- **Batches and POSTs** a versioned envelope to `HONE_URL`, authenticating with `HONE_TOKEN`.
+- **Batches and POSTs** a versioned envelope to the ingest endpoint, authenticating with
+  `HONE_TOKEN`. `HONE_URL` remains the fallback endpoint.
 - **Fails open.** If the endpoint is unreachable, records are dropped and counted without
   failing the host app. Web requests keep network work in request termination; long-running
   console processes also send full or aged buffers while they run.
@@ -75,6 +76,7 @@ NIGHTWATCH_ENABLED=true                       # Nightwatch collects when enabled
 HONE_URL=https://hone.<client>.example/ingest
 HONE_TOKEN=<issued by your Hone app's registry>
 NIGHTWATCH_DEPLOY=<commit sha, set at deploy; Cloud, Forge and Vapor are read automatically>
+# HONE_DISCOVER_INGEST=false                 # Optional: always use HONE_URL
 # Optional tuning: console buffers flush every 60 seconds with 2s connect / 5s total timeouts.
 # HONE_FLUSH_INTERVAL=60
 # HONE_CONSOLE_CONNECT_TIMEOUT=2
@@ -84,6 +86,14 @@ NIGHTWATCH_DEPLOY=<commit sha, set at deploy; Cloud, Forge and Vapor are read au
 You do **not** need a `NIGHTWATCH_TOKEN`. Nightwatch's collection is gated by
 `NIGHTWATCH_ENABLED` (default `true`), not the token — and Hone never talks to Nightwatch's
 cloud, so no real Nightwatch credential is required.
+
+When discovery is enabled, `hone-client` schedules `hone:refresh-ingest` hourly. The command
+reads `/capabilities` and caches its `ingest.url` for one hour. Telemetry delivery never makes
+that discovery request: it uses a fresh cached URL when one exists and otherwise immediately
+falls back to `HONE_URL`. A base `HONE_URL` is normalized to its `/ingest` endpoint. If the
+scheduler is unavailable, the cache expires, or the cache cannot be read, delivery continues
+to use the fallback. Set `HONE_DISCOVER_INGEST=false` to skip scheduling and always use the
+fallback.
 
 If a separately managed local agent holds the token instead of the app, duplicate `NIGHTWATCH_TOKEN` into the app environment so `hone-client` leaves Nightwatch enabled.
 

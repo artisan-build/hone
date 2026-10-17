@@ -58,6 +58,7 @@ final class HoneIngest implements Ingest
         private readonly LoggerInterface $logger,
         private readonly Core $nightwatch,
         private readonly ?CacheRepository $cache = null,
+        private readonly ?IngestDiscovery $discovery = null,
     ) {
         $this->connectTimeout = max(self::MINIMUM_TIMEOUT, $connectTimeout);
         $this->timeout = max(self::MINIMUM_TIMEOUT, $timeout);
@@ -132,6 +133,8 @@ final class HoneIngest implements Ingest
         $carriedFailedRecords = $this->carriedFailedDeliveryRecords();
 
         try {
+            $destination = $this->discovery?->destination() ?? (new HoneEndpoint($this->url))->ingestUrl();
+
             $envelope = Envelope::make(
                 app: $this->app,
                 deploy: $this->deploy,
@@ -145,7 +148,7 @@ final class HoneIngest implements Ingest
                 ->withToken($this->token)
                 ->connectTimeout($this->connectTimeout)
                 ->timeout($this->timeout)
-                ->post($this->url, $envelope)
+                ->post($destination, $envelope)
                 ->throw());
 
             $this->overflowDroppedRecords = 0;

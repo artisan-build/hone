@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 use ArtisanBuild\HoneClient\ContractsVersionNudge;
 use ArtisanBuild\HoneClient\HoneClientServiceProvider;
+use ArtisanBuild\HoneClient\HoneEndpoint;
 use ArtisanBuild\HoneClient\HoneIngest;
 use ArtisanBuild\HoneClient\Http\Middleware\CaptureResponseContext;
+use ArtisanBuild\HoneClient\IngestDiscovery;
 use ArtisanBuild\HoneContracts\Envelope;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository;
+use Illuminate\Console\Scheduling\Event;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Foundation\Http\Kernel;
@@ -86,9 +92,18 @@ function honeIngest(
     float $timeout = 0.5,
     ?LoggerInterface $logger = null,
     ?CacheRepository $cache = null,
+    string $url = 'https://hone.test/ingest',
+    bool $discoveryEnabled = true,
+    ?IngestDiscovery $discovery = null,
 ): HoneIngest {
+    $discovery ??= new IngestDiscovery(
+        endpoint: new HoneEndpoint($url),
+        cache: $cache,
+        enabled: $discoveryEnabled,
+    );
+
     return new HoneIngest(
-        url: 'https://hone.test/ingest',
+        url: $url,
         token: 'secret-token',
         app: 'checkout',
         deploy: 'abc123',
@@ -101,7 +116,13 @@ function honeIngest(
         logger: $logger ?? app(LoggerInterface::class),
         nightwatch: (new ReflectionClass(Core::class))->newInstanceWithoutConstructor(),
         cache: $cache,
+        discovery: $discovery,
     );
+}
+
+function honeArrayCache(): Repository
+{
+    return new Repository(new ArrayStore);
 }
 
 /**
@@ -143,6 +164,7 @@ function configureHoneConsumer(): void
     config()->set('hone.url', 'https://hone.test/ingest');
     config()->set('hone.token', 'secret-token');
     config()->set('hone.app', 'checkout');
+    config()->set('hone.discover_ingest', true);
     config()->set('cache.default', 'array');
 
     bindFakeNightwatchCore();
@@ -705,7 +727,7 @@ it('adds nightwatch enabled when installing', function (): void {
     expect((string) file_get_contents($path.'/.env'))->toContain('NIGHTWATCH_ENABLED=true');
 });
 
-it('checks hone server capabilities at the derived url with bearer token', function (): void {
+it('checks the public Hone capabilities url without sending the bearer token', function (): void {
     Http::fake([
         'https://hone.test/capabilities' => Http::response([
             'envelope' => ['min_major' => 1, 'max_major' => 1, 'supported_majors' => [1]],
@@ -721,7 +743,7 @@ it('checks hone server capabilities at the derived url with bearer token', funct
 
     Http::assertSent(function (Request $request): bool {
         return $request->url() === 'https://hone.test/capabilities'
-            && $request->hasHeader('Authorization', 'Bearer secret-token');
+            && ! $request->hasHeader('Authorization');
     });
 });
 
@@ -777,6 +799,480 @@ it('fails hone update when capabilities json is invalid', function (): void {
         ->expectsOutputToContain('invalid capabilities JSON')
         ->assertExitCode(1);
 });
+
+it('schedules ingest discovery hourly when Hone is configured', function (): void {
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    (new HoneClientServiceProvider(app()))->boot();
+
+    $event = collect(app(Schedule::class)->events())
+        ->sole(fn (Event $event): bool => str_contains((string) $event->command, 'hone:refresh-ingest'));
+
+    expect($event->expression)->toBe('0 * * * *');
+    expect($event->withoutOverlapping)->toBeTrue();
+});
+
+it('does not schedule ingest discovery when it is disabled', function (): void {
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => false,
+    ]);
+
+    (new HoneClientServiceProvider(app()))->boot();
+
+    $events = collect(app(Schedule::class)->events())
+        ->filter(fn (Event $event): bool => str_contains((string) $event->command, 'hone:refresh-ingest'));
+
+    expect($events)->toBeEmpty();
+});
+
+it('refreshes and uses a discovered ingest url with the console timeout budget', function (): void {
+    $cache = honeArrayCache();
+    app()->instance(CacheRepository::class, $cache);
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.app' => 'checkout',
+        'hone.discover_ingest' => true,
+        'hone.console_connect_timeout' => 1.25,
+        'hone.console_timeout' => 4.5,
+    ]);
+    bindFakeNightwatchCore();
+
+    $capabilityOptions = null;
+
+    Http::preventStrayRequests();
+    Http::fake(function (Request $request, array $options) use (&$capabilityOptions) {
+        if ($request->url() === 'https://hone.test/capabilities') {
+            $capabilityOptions = $options;
+
+            return Http::response(['ingest' => ['url' => 'https://ingest.hone.test/ingest']]);
+        }
+
+        return Http::response([], 202);
+    });
+
+    $this->artisan('hone:refresh-ingest')
+        ->expectsOutput('Hone ingest URL discovery refreshed.')
+        ->doesntExpectOutputToContain('secret-token')
+        ->assertExitCode(0);
+
+    app(HoneIngest::class)->writeNow(['t' => 'query']);
+
+    expect($cache->get((new HoneEndpoint('https://hone.test/ingest'))->discoveryCacheKey()))
+        ->toBe('https://ingest.hone.test/ingest')
+        ->and($capabilityOptions['connect_timeout'])->toBe(1.25)
+        ->and($capabilityOptions['timeout'])->toBe(4.5);
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/capabilities'
+        && ! $request->hasHeader('Authorization'));
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ingest.hone.test/ingest'
+        && $request->method() === 'POST'
+        && $request->hasHeader('Authorization', 'Bearer secret-token'));
+});
+
+it('keeps the configured endpoint as fallback and normalizes a base url once', function (string $configuredUrl, string $expectedUrl): void {
+    Http::preventStrayRequests();
+    Http::fake([
+        $expectedUrl => Http::response([], 202),
+    ]);
+
+    honeIngest(url: $configuredUrl, discoveryEnabled: false)->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->url() === $expectedUrl);
+})->with([
+    'full endpoint remains exact' => ['https://hone.test/ingest', 'https://hone.test/ingest'],
+    'base gains one ingest segment' => ['https://hone.test', 'https://hone.test/ingest'],
+]);
+
+it('keeps the original HoneIngest constructor usable without a discovery collaborator', function (): void {
+    Http::fake([
+        'https://hone.test/ingest' => Http::response([], 202),
+    ]);
+
+    $ingest = new HoneIngest(
+        url: 'https://hone.test/ingest',
+        token: 'secret-token',
+        app: 'checkout',
+        deploy: 'abc123',
+        bufferLimit: 500,
+        flushInterval: 60,
+        runningInConsole: false,
+        connectTimeout: 0.5,
+        timeout: 0.5,
+        http: app(Factory::class),
+        logger: app(LoggerInterface::class),
+        nightwatch: (new ReflectionClass(Core::class))->newInstanceWithoutConstructor(),
+    );
+
+    $ingest->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+});
+
+it('falls back without discovery network traffic on every delivery path', function (string $path, string $cacheState): void {
+    Carbon::setTestNow('2026-10-17 12:00:00');
+
+    try {
+        $cache = honeArrayCache();
+        $endpoint = new HoneEndpoint('https://hone.test/ingest');
+        $enabled = $cacheState !== 'disabled';
+
+        if (in_array($cacheState, ['hit', 'expired'], true)) {
+            $cache->put($endpoint->discoveryCacheKey(), 'https://discovered.test/ingest', IngestDiscovery::CACHE_TTL_SECONDS);
+        }
+
+        if ($cacheState === 'expired') {
+            Carbon::setTestNow('2026-10-17 13:00:01');
+        }
+
+        $expectedUrl = $cacheState === 'hit'
+            ? 'https://discovered.test/ingest'
+            : 'https://hone.test/ingest';
+
+        Http::preventStrayRequests();
+        Http::fake([
+            $expectedUrl => Http::response([], 202),
+        ]);
+
+        $ingest = honeIngest(
+            discovery: new IngestDiscovery($endpoint, $cache, $enabled),
+        );
+
+        if ($path === 'digest') {
+            $ingest->write(['t' => 'request']);
+            $ingest->digest();
+        } else {
+            $ingest->writeNow(['t' => 'query']);
+        }
+
+        Http::assertSentCount(1);
+        Http::assertSent(fn (Request $request): bool => $request->url() === $expectedUrl && $request->method() === 'POST');
+        Http::assertNotSent(fn (Request $request): bool => str_ends_with($request->url(), '/capabilities'));
+    } finally {
+        Carbon::setTestNow();
+    }
+})->with([
+    'terminate-equivalent digest' => ['digest', 'miss'],
+    'write now' => ['writeNow', 'miss'],
+    'cache hit' => ['writeNow', 'hit'],
+    'cache miss' => ['writeNow', 'miss'],
+    'expired cache' => ['writeNow', 'expired'],
+    'discovery kill switch' => ['writeNow', 'disabled'],
+]);
+
+it('falls back when reading the discovery cache throws', function (): void {
+    $cache = Mockery::mock(CacheRepository::class);
+    $cache->shouldReceive('get')->once()->andThrow(new RuntimeException('cache unavailable'));
+
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://hone.test/ingest' => Http::response([], 202),
+    ]);
+
+    honeIngest(
+        discovery: new IngestDiscovery(new HoneEndpoint('https://hone.test/ingest'), $cache, true),
+    )->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+});
+
+it('falls back when a cached discovery value is invalid', function (): void {
+    $cache = honeArrayCache();
+    $endpoint = new HoneEndpoint('https://hone.test/ingest');
+    $cache->put($endpoint->discoveryCacheKey(), 'https://user:password@attacker.test/ingest', 3600);
+
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://hone.test/ingest' => Http::response([], 202),
+    ]);
+
+    honeIngest(discovery: new IngestDiscovery($endpoint, $cache, true))->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+});
+
+it('rejects invalid advertised ingest urls and leaves delivery on fallback', function (mixed $advertisedUrl): void {
+    $cache = honeArrayCache();
+    app()->instance(CacheRepository::class, $cache);
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response(['ingest' => ['url' => $advertisedUrl]]),
+        'https://hone.test/ingest' => Http::response([], 202),
+    ]);
+
+    $this->artisan('hone:refresh-ingest')
+        ->expectsOutput('Hone server returned an invalid ingest URL.')
+        ->assertExitCode(1);
+
+    honeIngest(
+        discovery: new IngestDiscovery(new HoneEndpoint('https://hone.test/ingest'), $cache, true),
+    )->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+})->with([
+    'missing' => [null],
+    'relative' => ['/ingest'],
+    'wrong scheme' => ['ftp://hone.test/ingest'],
+    'credentials' => ['https://user:password@hone.test/ingest'],
+    'fragment' => ['https://hone.test/ingest#fragment'],
+    'https downgrade' => ['http://hone.test/ingest'],
+]);
+
+it('allows an advertised http ingest url when the configured Hone url uses http', function (): void {
+    $cache = honeArrayCache();
+    app()->instance(CacheRepository::class, $cache);
+
+    config()->set([
+        'hone.url' => 'http://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake([
+        'http://hone.test/capabilities' => Http::response(['ingest' => ['url' => 'http://local-ingest.test/ingest']]),
+        'http://local-ingest.test/ingest' => Http::response([], 202),
+    ]);
+
+    $this->artisan('hone:refresh-ingest')->assertExitCode(0);
+    honeIngest(
+        url: 'http://hone.test/ingest',
+        discovery: new IngestDiscovery(new HoneEndpoint('http://hone.test/ingest'), $cache, true),
+    )->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'http://hone.test/capabilities'
+        && ! $request->hasHeader('Authorization'));
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'http://local-ingest.test/ingest');
+});
+
+it('lets a long-lived ingest observe discovery refresh and expiry', function (): void {
+    Carbon::setTestNow('2026-10-17 12:00:00');
+
+    try {
+        $cache = honeArrayCache();
+        $endpoint = new HoneEndpoint('https://hone.test/ingest');
+        $discovery = new IngestDiscovery($endpoint, $cache, true);
+        $ingest = honeIngest(discovery: $discovery);
+
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://hone.test/ingest' => Http::response([], 202),
+            'https://discovered.test/ingest' => Http::response([], 202),
+        ]);
+
+        $ingest->writeNow(['t' => 'query', 'index' => 1]);
+
+        expect($discovery->remember('https://discovered.test/ingest'))->toBeTrue();
+
+        $ingest->writeNow(['t' => 'query', 'index' => 2]);
+
+        Carbon::setTestNow('2026-10-17 13:00:01');
+        $ingest->writeNow(['t' => 'query', 'index' => 3]);
+
+        expect(Http::recorded()
+            ->map(fn (array $recorded): string => $recorded[0]->url())
+            ->all())->toBe([
+                'https://hone.test/ingest',
+                'https://discovered.test/ingest',
+                'https://hone.test/ingest',
+            ]);
+        Http::assertNotSent(fn (Request $request): bool => str_ends_with($request->url(), '/capabilities'));
+    } finally {
+        Carbon::setTestNow();
+    }
+});
+
+it('falls back when capabilities contain invalid json', function (): void {
+    $cache = honeArrayCache();
+    app()->instance(CacheRepository::class, $cache);
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response('{invalid json', 200, ['Content-Type' => 'application/json']),
+        'https://hone.test/ingest' => Http::response([], 202),
+    ]);
+
+    $this->artisan('hone:refresh-ingest')->assertExitCode(1);
+    honeIngest(discovery: new IngestDiscovery(new HoneEndpoint('https://hone.test/ingest'), $cache, true))
+        ->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+});
+
+it('falls back when the capability request fails', function (string $failure, int $recordedRequests): void {
+    $cache = honeArrayCache();
+    app()->instance(CacheRepository::class, $cache);
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake(function (Request $request) use ($failure) {
+        if ($request->url() === 'https://hone.test/capabilities') {
+            if ($failure === 'connection') {
+                throw new ConnectionException('network unavailable');
+            }
+
+            return Http::response([], 503);
+        }
+
+        return Http::response([], 202);
+    });
+
+    $this->artisan('hone:refresh-ingest')->assertExitCode(1);
+    honeIngest(discovery: new IngestDiscovery(new HoneEndpoint('https://hone.test/ingest'), $cache, true))
+        ->writeNow(['t' => 'query']);
+
+    Http::assertSentCount($recordedRequests);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+})->with([
+    'connection error' => ['connection', 1],
+    'non-success response' => ['response', 2],
+]);
+
+it('leaves a fresh last-known-good discovery untouched when refresh fails', function (): void {
+    $cache = honeArrayCache();
+    $endpoint = new HoneEndpoint('https://hone.test/ingest');
+    $discovery = new IngestDiscovery($endpoint, $cache, true);
+    $discovery->remember('https://known-good.test/ingest');
+
+    app()->instance(CacheRepository::class, $cache);
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response([], 503),
+    ]);
+
+    $this->artisan('hone:refresh-ingest')->assertExitCode(1);
+
+    expect($discovery->destination())->toBe('https://known-good.test/ingest');
+});
+
+it('fails open when the discovery cache cannot store a refresh', function (): void {
+    $cache = Mockery::mock(CacheRepository::class);
+    $cache->shouldReceive('put')->once()->andReturnFalse();
+    $cache->shouldReceive('get')->once()->andReturnNull();
+    app()->instance(CacheRepository::class, $cache);
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://hone.test/capabilities' => Http::response(['ingest' => ['url' => 'https://discovered.test/ingest']]),
+        'https://hone.test/ingest' => Http::response([], 202),
+    ]);
+
+    $this->artisan('hone:refresh-ingest')
+        ->expectsOutputToContain('using the configured fallback')
+        ->assertExitCode(1);
+
+    honeIngest(
+        discovery: new IngestDiscovery(new HoneEndpoint('https://hone.test/ingest'), $cache, true),
+    )->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+});
+
+it('does not refresh or use discovery when the kill switch is off', function (): void {
+    $cache = honeArrayCache();
+    $endpoint = new HoneEndpoint('https://hone.test/ingest');
+    $cache->put($endpoint->discoveryCacheKey(), 'https://discovered.test/ingest', 3600);
+    app()->instance(CacheRepository::class, $cache);
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => false,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://hone.test/ingest' => Http::response([], 202),
+    ]);
+
+    $this->artisan('hone:refresh-ingest')
+        ->expectsOutputToContain('discovery is disabled')
+        ->assertExitCode(0);
+
+    honeIngest(discovery: new IngestDiscovery($endpoint, $cache, false))->writeNow(['t' => 'query']);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+    Http::assertNotSent(fn (Request $request): bool => str_ends_with($request->url(), '/capabilities'));
+});
+
+it('scopes discovered ingest urls by configured Hone url', function (): void {
+    $cache = honeArrayCache();
+    $first = new IngestDiscovery(new HoneEndpoint('https://first.test/ingest'), $cache, true);
+    $second = new IngestDiscovery(new HoneEndpoint('https://second.test/ingest'), $cache, true);
+
+    expect($first->remember('https://first-ingest.test/ingest'))->toBeTrue()
+        ->and($second->destination())->toBe('https://second.test/ingest');
+
+    expect($second->remember('https://second-ingest.test/ingest'))->toBeTrue()
+        ->and($first->destination())->toBe('https://first-ingest.test/ingest')
+        ->and($second->destination())->toBe('https://second-ingest.test/ingest');
+});
+
+it('fails discovery without complete configuration and sends nothing', function (?string $url, ?string $token): void {
+    config()->set([
+        'hone.url' => $url,
+        'hone.token' => $token,
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake();
+
+    $this->artisan('hone:refresh-ingest')
+        ->expectsOutputToContain('requires HONE_URL and HONE_TOKEN')
+        ->assertExitCode(1);
+
+    Http::assertNothingSent();
+})->with([
+    'missing url' => [null, 'secret-token'],
+    'missing token' => ['https://hone.test/ingest', null],
+]);
 
 it('nudges once when the stored contracts major changes', function (): void {
     $path = useHoneClientTempApp();
