@@ -48,14 +48,14 @@ it('refuses an ingest credential on the real MCP route after a database cache hi
     expect($lookups)->toBe(1)->and($usageWrites)->toBe(1);
     Queue::assertPushed(ProcessTelemetryBatch::class);
 
-    $key = 'hone-server:ingest-credential:'.hash('sha256', $minted->plaintext());
+    $key = 'hone-server:ingest-credential:'.hash('sha256', (string) $minted->plaintext());
     $cacheRow = DB::table('cache')->get()->first(
         fn (object $row): bool => str_ends_with($row->key, $key),
     );
 
     expect($cacheRow)->not->toBeNull()
-        ->and(str_contains($cacheRow->key, $minted->plaintext()))->toBeFalse()
-        ->and(str_contains($cacheRow->value, $minted->plaintext()))->toBeFalse();
+        ->and(str_contains((string) $cacheRow->key, (string) $minted->plaintext()))->toBeFalse()
+        ->and(str_contains((string) $cacheRow->value, (string) $minted->plaintext()))->toBeFalse();
 
     $this->postJson('/mcp', [
         'jsonrpc' => '2.0',
