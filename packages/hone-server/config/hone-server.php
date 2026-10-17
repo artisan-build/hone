@@ -10,6 +10,10 @@ return [
      */
     'route_prefix' => env('HONE_ROUTE_PREFIX', ''),
 
+    'ingest' => [
+        'credential_cache_ttl' => (int) env('HONE_INGEST_CREDENTIAL_CACHE_TTL', 60),
+    ],
+
     // Use an async connection such as redis for throughput; afterResponse keeps ingest unblocked even on sync.
     'queue' => env('HONE_QUEUE_CONNECTION'),
     'asn' => [
