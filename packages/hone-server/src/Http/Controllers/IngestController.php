@@ -78,11 +78,18 @@ final class IngestController
 
     public function capabilities(): JsonResponse
     {
+        $ingestUrl = config('hone-server.ingest_url');
+
         return response()->json([
             'envelope' => [
                 'min_major' => 1,
                 'max_major' => Envelope::VERSION,
                 'supported_majors' => range(1, Envelope::VERSION),
+            ],
+            'ingest' => [
+                'url' => is_string($ingestUrl) && $ingestUrl !== ''
+                    ? $ingestUrl
+                    : route('hone-server.ingest'),
             ],
         ]);
     }

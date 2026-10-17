@@ -835,6 +835,7 @@ These are tuning knobs, not setup requirements.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `HONE_INGEST_CREDENTIAL_CACHE_TTL` | `60` | Seconds to reuse a validated ingest credential before checking it again. Set this to `0` to disable the cache. |
+| `HONE_INGEST_URL` | The named `/ingest` route | Absolute ingest URL advertised by `/capabilities`. Leave it unset unless this app has a dedicated ingest target. |
 | `HONE_MCP_PATH` | `/mcp` | Where the MCP server is mounted. |
 | `HONE_ROUTE_PREFIX` | *(none)* | URL prefix for `/ingest` and `/capabilities`. Does not affect the MCP path. |
 | `HONE_QUEUE_CONNECTION` | *(none)* | Queue connection used for ingest batches. Unset means the app's default connection, which is what you want on Laravel Cloud. `.env.example` sets it to `redis` for local work. |

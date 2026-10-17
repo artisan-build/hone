@@ -25,7 +25,8 @@ it('exposes Hone envelope capabilities', function (): void {
         ->assertOk()
         ->assertJsonPath('envelope.min_major', 1)
         ->assertJsonPath('envelope.max_major', Envelope::VERSION)
-        ->assertJsonPath('envelope.supported_majors', range(1, Envelope::VERSION));
+        ->assertJsonPath('envelope.supported_majors', range(1, Envelope::VERSION))
+        ->assertJsonPath('ingest.url', route('hone-server.ingest'));
 });
 
 it('rejects ingest requests without a valid source token', function (): void {

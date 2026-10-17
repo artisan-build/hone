@@ -171,12 +171,29 @@ it('rejects non-decodable json without dispatching', function (): void {
     Queue::assertNothingPushed();
 });
 
-it('reports supported envelope capabilities without authentication', function (): void {
+it('reports supported envelope capabilities with the named ingest route when no dedicated URL is configured', function (?string $ingestUrl): void {
+    config()->set('hone-server.ingest_url', $ingestUrl);
+
     $this->getJson('/capabilities')
         ->assertOk()
         ->assertJsonPath('envelope.min_major', 1)
         ->assertJsonPath('envelope.max_major', Envelope::VERSION)
-        ->assertJsonPath('envelope.supported_majors', range(1, Envelope::VERSION));
+        ->assertJsonPath('envelope.supported_majors', range(1, Envelope::VERSION))
+        ->assertJsonPath('ingest.url', route('hone-server.ingest'));
+})->with([
+    'unset' => [null],
+    'empty' => [''],
+]);
+
+it('reports supported envelope capabilities with a configured dedicated ingest URL', function (): void {
+    config()->set('hone-server.ingest_url', 'https://ingest.example.com/ingest');
+
+    $this->getJson('/capabilities')
+        ->assertOk()
+        ->assertJsonPath('envelope.min_major', 1)
+        ->assertJsonPath('envelope.max_major', Envelope::VERSION)
+        ->assertJsonPath('envelope.supported_majors', range(1, Envelope::VERSION))
+        ->assertJsonPath('ingest.url', 'https://ingest.example.com/ingest');
 });
 
 it('processes telemetry batches into raw events', function (): void {

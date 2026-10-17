@@ -10,6 +10,8 @@ return [
      */
     'route_prefix' => env('HONE_ROUTE_PREFIX', ''),
 
+    'ingest_url' => env('HONE_INGEST_URL'),
+
     'ingest' => [
         'credential_cache_ttl' => (int) env('HONE_INGEST_CREDENTIAL_CACHE_TTL', 60),
     ],
