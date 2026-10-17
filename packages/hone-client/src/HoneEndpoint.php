@@ -15,13 +15,16 @@ final readonly class HoneEndpoint
 
     public function ingestUrl(): string
     {
-        $url = rtrim($this->configuredUrl, '/');
+        $path = parse_url($this->configuredUrl, PHP_URL_PATH);
+        $suffixOffset = strcspn($this->configuredUrl, '?#');
+        $url = rtrim(substr($this->configuredUrl, 0, $suffixOffset), '/');
+        $suffix = substr($this->configuredUrl, $suffixOffset);
 
-        if (str_ends_with($url, '/ingest')) {
-            return $url;
+        if (is_string($path) && $path !== '' && $path !== '/') {
+            return $url.$suffix;
         }
 
-        return $url.'/ingest';
+        return $url.'/ingest'.$suffix;
     }
 
     public function capabilitiesUrl(): string

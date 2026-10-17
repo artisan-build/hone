@@ -133,7 +133,7 @@ final class HoneIngest implements Ingest
         $carriedFailedRecords = $this->carriedFailedDeliveryRecords();
 
         try {
-            $destination = $this->discovery?->destination() ?? (new HoneEndpoint($this->url))->ingestUrl();
+            $destination = $this->discovery?->destination() ?? $this->url;
 
             $envelope = Envelope::make(
                 app: $this->app,

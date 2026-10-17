@@ -890,16 +890,20 @@ it('keeps the configured endpoint as fallback and normalizes a base url once', f
     Http::assertSent(fn (Request $request): bool => $request->url() === $expectedUrl);
 })->with([
     'full endpoint remains exact' => ['https://hone.test/ingest', 'https://hone.test/ingest'],
-    'base gains one ingest segment' => ['https://hone.test', 'https://hone.test/ingest'],
+    'base without slash gains one ingest segment' => ['https://hone.test', 'https://hone.test/ingest'],
+    'base with slash gains one ingest segment' => ['https://hone.test/', 'https://hone.test/ingest'],
+    'canonical endpoint trailing slash is normalized' => ['https://hone.test/ingest/', 'https://hone.test/ingest'],
+    'custom full endpoint remains exact' => ['https://hone.test/custom-collector', 'https://hone.test/custom-collector'],
+    'custom full endpoint trailing slash is normalized' => ['https://hone.test/custom-collector/', 'https://hone.test/custom-collector'],
 ]);
 
 it('keeps the original HoneIngest constructor usable without a discovery collaborator', function (): void {
     Http::fake([
-        'https://hone.test/ingest' => Http::response([], 202),
+        'https://hone.test/custom-collector' => Http::response([], 202),
     ]);
 
     $ingest = new HoneIngest(
-        url: 'https://hone.test/ingest',
+        url: 'https://hone.test/custom-collector',
         token: 'secret-token',
         app: 'checkout',
         deploy: 'abc123',
@@ -916,7 +920,7 @@ it('keeps the original HoneIngest constructor usable without a discovery collabo
     $ingest->writeNow(['t' => 'query']);
 
     Http::assertSentCount(1);
-    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/ingest');
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/custom-collector');
 });
 
 it('falls back without discovery network traffic on every delivery path', function (string $path, string $cacheState): void {
