@@ -40,6 +40,11 @@ final class OctaneMcpIsolationProbe
      * }>
      */
     public array $executions = [];
+
+    /** @var list<array{before: int, after: int}> */
+    public array $serverStates = [];
+
+    public function __construct(public readonly ?int $serverStateMutationDelta = null) {}
 }
 
 #[Name('octane-request-isolation-probe')]
@@ -51,7 +56,10 @@ final class OctaneMcpIsolationProbeTool extends Tool
 
     private int $invocations = 0;
 
-    public function __construct(private readonly OctaneMcpIsolationProbe $probe) {}
+    public function __construct(
+        private readonly OctaneMcpIsolationProbe $probe,
+        private readonly HoneMcpServer $server,
+    ) {}
 
     public function handle(Request $request): McpResponse
     {
@@ -59,6 +67,15 @@ final class OctaneMcpIsolationProbeTool extends Tool
 
         if (! $credential instanceof Credential) {
             throw new LogicException('The MCP isolation probe requires a credential principal.');
+        }
+
+        if ($this->probe->serverStateMutationDelta !== null) {
+            $before = $this->server->maxPaginationLength;
+            $this->server->maxPaginationLength += $this->probe->serverStateMutationDelta;
+            $this->probe->serverStates[] = [
+                'before' => $before,
+                'after' => $this->server->maxPaginationLength,
+            ];
         }
 
         $execution = [
@@ -229,6 +246,7 @@ function registerOctaneMcpIsolationProbe(OctaneMcpIsolationProbe $probe): void
         }
 
         $server = new HoneMcpServer($transport);
+        $application->instance(HoneMcpServer::class, $server);
         $tools = new ReflectionProperty($server, 'tools')->getValue($server);
 
         if (! is_array($tools)) {
@@ -425,8 +443,8 @@ it('does not execute an MCP tool when an unauthenticated request follows an auth
         ->and($probe->executions[0]['subject_ref'])->toBe('authenticated-mcp-source');
 });
 
-it('starts mutable MCP tool state clean in each Octane sandbox', function (): void {
-    $probe = new OctaneMcpIsolationProbe;
+it('starts mutable MCP tool and server state clean in each Octane sandbox', function (): void {
+    $probe = new OctaneMcpIsolationProbe(serverStateMutationDelta: 37);
     registerOctaneMcpIsolationProbe($probe);
     $credential = octaneMcpCredential('state-isolation-source', [OperatorAbility::McpRead->value]);
 
@@ -437,5 +455,10 @@ it('starts mutable MCP tool state clean in each Octane sandbox', function (): vo
         ->and($second->getStatusCode())->toBe(200)
         ->and(octaneMcpProbeResult($first)['tool_instance_invocations'])->toBe(1)
         ->and(octaneMcpProbeResult($second)['tool_instance_invocations'])->toBe(1)
-        ->and(array_column($probe->executions, 'tool_instance_invocations'))->toBe([1, 1]);
+        ->and(array_column($probe->executions, 'tool_instance_invocations'))->toBe([1, 1])
+        ->and($probe->serverStates)->toHaveCount(2)
+        ->and($probe->serverStates[0]['after'])->toBe($probe->serverStates[0]['before'] + 37)
+        ->and($probe->serverStates[1]['before'])->toBe($probe->serverStates[0]['before'])
+        ->and($probe->serverStates[1]['before'])->not->toBe($probe->serverStates[0]['after'])
+        ->and($probe->serverStates[1]['after'])->toBe($probe->serverStates[1]['before'] + 37);
 });
