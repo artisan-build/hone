@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde", "clock"] }
+dateparser = "0.3"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

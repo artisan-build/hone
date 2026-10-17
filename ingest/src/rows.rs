@@ -199,6 +199,7 @@ fn parse_date_string(value: &str) -> Option<DateTime<Utc>> {
         .ok()
         .and_then(|date| date.and_hms_opt(0, 0, 0))
         .map(|timestamp| Utc.from_utc_datetime(&timestamp))
+        .or_else(|| dateparser::parse_with_timezone(&value, &Utc).ok())
 }
 
 #[derive(Default)]
@@ -507,6 +508,20 @@ mod tests {
         assert_eq!(row.user_agent.as_deref(), Some("curl/9"));
         assert_eq!(row.client_ip.as_deref(), Some("8.8.8.8"));
         assert_eq!(row.response, Some(json!({"status": 200})));
+
+        let carbon_style = build_row(
+            "checkout",
+            None,
+            "2026-06-09T12:00:00Z",
+            &json!({"t": "log", "timestamp": "May 8, 2009 5:57:51 PM"}),
+            &AsnLookup::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            carbon_style.occurred_at.to_rfc3339(),
+            "2009-05-08T17:57:51+00:00"
+        );
     }
 
     #[test]
