@@ -221,7 +221,7 @@ function registerOctaneMcpIsolationProbe(OctaneMcpIsolationProbe $probe): void
 {
     app()->instance(OctaneMcpIsolationProbe::class, $probe);
     app()->singleton(OctaneMcpIsolationProbeTool::class);
-    app()->bind(HoneMcpServer::class, static function (Application $application, array $parameters): HoneMcpServer {
+    app()->bind(static function (Application $application, array $parameters): HoneMcpServer {
         $transport = $parameters['transport'] ?? null;
 
         if (! $transport instanceof Transport) {
