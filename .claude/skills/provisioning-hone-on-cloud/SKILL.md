@@ -9,6 +9,11 @@ Stands up **one isolated Hone environment** (one client) on Laravel Cloud. Hone 
 isolation is per-environment — so repeat this per client. One environment ingests from many source apps,
 so you do NOT provision per source app.
 
+Customer provisioning stays PHP-only until the Rust runtime is generally available on Cloud.
+The separately authorized internal rollout is documented in [`.cloud/README.md`](../../../.cloud/README.md).
+Keep `.cloud/config.json` bound to primary PHP and leave PHP `HONE_INGEST_URL` unset during that
+unadvertised rollout. Never set Cloud-injected `DATABASE_URL`, `DB_*`, or `APP_URL` manually.
+
 This skill **specializes** the generic `deploying-laravel-cloud` skill (shipped by the Cloud CLI). Its
 rules still apply: **discover options at runtime** (`cloud <cmd> -h`, `cloud instance:sizes`,
 `cloud cache:types`); add `-n` to every command; `--json` on reads/creates; `--force` on updates and
@@ -81,10 +86,16 @@ The scheduler runs two Hone commands, both hourly, each behind its own overlap l
 
 1. **`hone:maintain`** — rollup then prune. This is the work that keeps `aggregates` current and
    `raw_events` inside retention.
-2. **`hone:health`** — checks maintenance recency, raw retention age and aggregate freshness against the
-   `hone-server.health.*` budgets. It prints a table (or JSON with `--json`) and **exits non-zero if any
-   check is in alarm**. A non-zero exit means maintenance has stopped keeping up: it has not completed
-   recently, raw events are older than retention allows, or aggregates are stale.
+2. **`hone:health`** — checks maintenance recency, raw retention age, aggregate freshness, and the
+   currently advertised ingest target. The command alone makes one unauthenticated GET to that
+   origin's `/up`, disables redirects, and requires exact HTTP 200. Invalid absolute HTTP(S) URLs
+   or userinfo, connection failures/timeouts, and all other statuses produce an `ingest_target`
+   alarm. The probe is absent from MCP reporting and request/terminate delivery paths.
+   `HONE_HEALTH_INGEST_CONNECT_TIMEOUT` defaults to `1` second and `HONE_HEALTH_INGEST_TIMEOUT`
+   to `3` seconds total; both have a `0.05`-second minimum. It prints a table (or JSON with
+   `--json`) and exits non-zero on any alarm, whether maintenance or reachability. It reports
+   no credentials, query strings, fragments, response bodies, or exception messages. While Rust
+   is unadvertised it probes PHP, so inspect Rust's `/up` separately during observation.
 
 **These alarms are currently unrouted. Nothing collects that signal.** No monitor, alert, notification or
 pager consumes `hone:health`'s exit code or output. A failing run is visible only in the scheduler's own

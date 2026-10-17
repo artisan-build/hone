@@ -5,17 +5,20 @@ declare(strict_types=1);
 namespace ArtisanBuild\HoneServer\Commands;
 
 use ArtisanBuild\BuiltForCloud\Commands\SystemAuthorityCommand;
+use ArtisanBuild\HoneServer\Maintenance\IngestTargetHealth;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceHealth;
 
 final class HealthCommand extends SystemAuthorityCommand
 {
     protected $signature = 'hone:health {--json : Print the report as JSON}';
 
-    protected $description = 'Check maintenance recency, raw retention age, and aggregate freshness; exits non-zero on any alarm.';
+    protected $description = 'Check maintenance, retention, aggregate freshness, and advertised ingest reachability; exits non-zero on any alarm.';
 
-    public function handle(MaintenanceHealth $health): int
+    public function handle(MaintenanceHealth $health, IngestTargetHealth $ingestTarget): int
     {
         $report = $health->report();
+        $report['checks']['ingest_target'] = $ingestTarget->check();
+        $report['healthy'] = $report['healthy'] && $report['checks']['ingest_target']['status'] === MaintenanceHealth::OK;
 
         if ($this->option('json')) {
             $this->line((string) json_encode($report, JSON_PRETTY_PRINT));

@@ -8,6 +8,7 @@ use ArtisanBuild\HoneContracts\Envelope;
 use ArtisanBuild\HoneContracts\Exceptions\InvalidEnvelope;
 use ArtisanBuild\HoneServer\Auth\IngestCredentialAuthenticator;
 use ArtisanBuild\HoneServer\Jobs\ProcessTelemetryBatch;
+use ArtisanBuild\HoneServer\Support\AdvertisedIngestUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Bus;
@@ -76,10 +77,8 @@ final class IngestController
         return response()->json(['message' => 'Accepted.'], 202);
     }
 
-    public function capabilities(): JsonResponse
+    public function capabilities(AdvertisedIngestUrl $ingestUrl): JsonResponse
     {
-        $ingestUrl = config('hone-server.ingest_url');
-
         return response()->json([
             'envelope' => [
                 'min_major' => 1,
@@ -87,9 +86,7 @@ final class IngestController
                 'supported_majors' => range(1, Envelope::VERSION),
             ],
             'ingest' => [
-                'url' => is_string($ingestUrl) && $ingestUrl !== ''
-                    ? $ingestUrl
-                    : route('hone-server.ingest'),
+                'url' => $ingestUrl->resolve(),
             ],
         ]);
     }

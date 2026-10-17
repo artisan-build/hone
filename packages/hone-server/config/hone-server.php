@@ -65,6 +65,9 @@ return [
      | active (a raw event occurred within ingest_active_minutes).
      */
     'health' => [
+        // Command-only GET /up probe; seconds, with a minimum of 0.05 to avoid unbounded waits.
+        'ingest_connect_timeout' => (float) env('HONE_HEALTH_INGEST_CONNECT_TIMEOUT', 1),
+        'ingest_timeout' => (float) env('HONE_HEALTH_INGEST_TIMEOUT', 3),
         'ingest_active_minutes' => (int) env('HONE_HEALTH_INGEST_ACTIVE_MINUTES', 60),
         'maintenance_max_age_minutes' => (int) env('HONE_HEALTH_MAINTENANCE_MAX_AGE_MINUTES', 150),
         'retention_grace_hours' => (int) env('HONE_HEALTH_RETENTION_GRACE_HOURS', 24),

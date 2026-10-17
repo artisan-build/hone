@@ -8,8 +8,11 @@ use ArtisanBuild\HoneServer\Models\Aggregate;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 
 beforeEach(function (): void {
+    Http::preventStrayRequests();
+    Http::fake(['http://localhost/up' => Http::response('', 200)]);
     Carbon::setTestNow('2026-06-09 12:00:00+00');
     config()->set('hone-server.retention.raw_hours', 72);
     config()->set('hone-server.health', [

@@ -322,10 +322,12 @@ yesterday by default), not the day your event landed on.
 | maintenance         | ok     | {"last_success_at":null,"age_minutes":null,"budget_minutes":150}             |
 | retention           | ok     | {"oldest_occurred_at":"...","age_hours":0,"budget_hours":96}                 |
 | aggregate_freshness | ok     | {"newest_bucket_date":"...","age_hours":0,"budget_hours":6}                  |
+| ingest_target       | ok     | {"health_url":"http://127.0.0.1:8787/up","http_status":200,"reason":"reachable"} |
 ```
 
 It exits non-zero if any check alarms. A check reads `idle` rather than `ok` when no event has arrived
-in the last hour — a quiet instance, not a broken one.
+in the last hour — a quiet instance, not a broken one. The ingest-target check runs even when
+ingest is idle and requires exact HTTP 200 from the advertised origin's `/up`.
 
 ### Deploying to Laravel Cloud
 
@@ -457,7 +459,7 @@ credentials, `CACHE_STORE`, `SESSION_DRIVER`, `FILESYSTEM_DISK`, `REDIS_*`, `AWS
 `QUEUE_CONNECTION`, and `HONE_QUEUE_CONNECTION`. Every one of those either is injected by Cloud or
 should be left to the framework default.
 
-**The three variables in the next step are the complete manual set for this deployment.** Everything
+**The two variables in the next step are the complete manual set for this deployment.** Everything
 else Hone needs already has a working default, and every resource setting arrives from Cloud.
 `HONE_QUEUE_CONNECTION` in particular must stay unset, so ingest batches use the default connection
 Cloud points at your managed queue.
@@ -466,12 +468,11 @@ Cloud points at your managed queue.
 rest, including the injected ones. Cloud generates `APP_KEY` itself.
 
 ```shell
-cloud environment:variables <env-id> --action set --key APP_URL --value https://<env-url> -n --force
 cloud environment:variables <env-id> --action set --key APP_ENV --value production -n --force
 cloud environment:variables <env-id> --action set --key APP_DEBUG --value false -n --force
 ```
 
-Everything in the [configuration tables](#configuration) already defaults to a sensible value, so set a
+Cloud injects `APP_URL`; never override it manually. Everything in the [configuration tables](#configuration) already defaults to a sensible value, so set a
 `HONE_*` key only to change one. Do **not** set `HONE_DB_*` — telemetry shares the database Cloud
 attached. Do **not** set `NIGHTWATCH_TOKEN`.
 
@@ -588,14 +589,42 @@ It runs Cloud's managed agent and ships data to Nightwatch's hosted service, whi
 Hone's transport replacement exists to avoid.
 
 **What the scheduler runs.** `hone:maintain` hourly (roll raw events into daily aggregates, then delete
-what is past retention) and `hone:health` hourly (check that maintenance is keeping up; exit non-zero
-if it is not). **Nothing collects that exit code.** There is no monitor, alert or pager behind it — a
+what is past retention) and `hone:health` hourly (check maintenance and the advertised ingest target;
+exit non-zero on any alarm). **Nothing collects that exit code.** There is no monitor, alert or pager behind it — a
 failing check is visible only to someone who reads the scheduler's Cloud logs. Hone is pull, not push,
 and this is the honest consequence. To look at it on demand:
 
 ```shell
 cloud command:run <env-id> --cmd="php artisan hone:health --json" -n
 ```
+
+#### Optional Rust ingest application (internal rollout)
+
+Customer provisioning stays PHP-only until Rust is generally available on Cloud. The internal
+dual-ingest rollout uses a second application, conceptually `hone-ingest`, from the same repository
+with `root_directory=ingest`, sharing the existing PHP database schema. Management, MCP, queue,
+scheduler, and migrations stay on PHP. See [`.cloud/README.md`](.cloud/README.md) for creation
+constraints, explicit target-ID handling, and the synthetic-only observation procedure.
+
+Normal deploy order is PHP/schema owner first (migrations), Rust second. For schema changes touching
+any table Rust reads or writes (at minimum `raw_events` or `credentials`), first ship a Rust build
+tolerant of both the old and new schema while the old schema is live, then deploy the PHP migration,
+then deploy any final Rust cleanup only after the migration is complete. Do not make destructive
+column changes while old Rust replicas may still run.
+
+Create/deploy/probe Rust unadvertised, using only synthetic envelopes and a dedicated synthetic
+credential handled outside the repository and disk. Verify persisted parity rows and remove synthetic
+rows. Leave PHP `HONE_INGEST_URL` unset until a separately authorized activation after the one-day
+observation period. Do not change PHP instance size, replicas, hibernation, queue, or scheduler.
+
+`hone:health` probes the currently advertised target, so it checks PHP while Rust is unadvertised.
+It makes one unauthenticated GET to that origin's `/up` (preserving ports and IPv6, dropping all path
+prefixes, query strings, and fragments), disables redirects, and requires exact HTTP 200. Invalid
+absolute HTTP(S) URLs or userinfo, connection failures/timeouts, and any other status produce an
+`ingest_target` alarm in both table and JSON output and a nonzero exit. It never sends an ingest
+envelope or token. This probe runs only in the command, never on MCP, request, or terminate paths.
+A healthy `/up` proves reachability, not persisted ingest parity. Scheduled failures remain unrouted
+and visible only in logs.
 
 ### Connecting a source app
 
@@ -835,7 +864,7 @@ These are tuning knobs, not setup requirements.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `HONE_INGEST_CREDENTIAL_CACHE_TTL` | `60` | Seconds to reuse a validated ingest credential before checking it again. Set this to `0` to disable the cache. |
-| `HONE_INGEST_URL` | The named `/ingest` route | Absolute ingest URL advertised by `/capabilities`. Leave it unset unless this app has a dedicated ingest target. |
+| `HONE_INGEST_URL` | The named `/ingest` route | Absolute ingest URL advertised by `/capabilities`. Leave unset during the unadvertised Rust rollout; activation requires separate authorization. |
 | `HONE_MCP_PATH` | `/mcp` | Where the MCP server is mounted. |
 | `HONE_ROUTE_PREFIX` | *(none)* | URL prefix for `/ingest` and `/capabilities`. Does not affect the MCP path. |
 | `HONE_QUEUE_CONNECTION` | *(none)* | Queue connection used for ingest batches. Unset means the app's default connection, which is what you want on Laravel Cloud. `.env.example` sets it to `redis` for local work. |
@@ -848,6 +877,8 @@ These are tuning knobs, not setup requirements.
 | `HONE_HEALTH_MAINTENANCE_MAX_AGE_MINUTES` | `150` | Alarm if `hone:maintain` has not succeeded within this long. |
 | `HONE_HEALTH_RETENTION_GRACE_HOURS` | `24` | Added to the raw retention window before the retention check alarms. |
 | `HONE_HEALTH_AGGREGATE_MAX_AGE_HOURS` | `6` | Alarm if the newest aggregate bucket is older than this. |
+| `HONE_HEALTH_INGEST_CONNECT_TIMEOUT` | `1` | Seconds allowed to connect for the command-only `/up` probe; minimum `0.05`. |
+| `HONE_HEALTH_INGEST_TIMEOUT` | `3` | Total seconds allowed for the command-only `/up` probe; minimum `0.05`. No retries or redirects. |
 | `BUILT_FOR_CLOUD_CREDENTIAL_GUARD` | `bfc` | The auth guard credentials resolve through. Leave it alone. |
 
 `NIGHTWATCH_DEPLOY` is **not** a Hone server setting, despite the empty entry in `.env.example`.
@@ -989,6 +1020,9 @@ aggregated. `hone:backfill` is how you pick those up.
 **`hone:health` exits non-zero.** Read its table, or `php artisan hone:health --json`. `maintenance`
 means the hourly run has stopped succeeding; `retention` means raw events are older than they should
 be, which usually follows from the first; `aggregate_freshness` means the newest daily bucket is stale.
+`ingest_target` means the advertised URL is invalid or its same-origin `/up` did not return exact
+HTTP 200 within the configured timeouts. Check reachability and the sanitized URL in the output;
+credentials, query strings, fragments, and exception messages are never printed by this check.
 A status of `idle` is not a failure — it means no event has arrived in the last
 `HONE_HEALTH_INGEST_ACTIVE_MINUTES`, so those checks are not judging.
 
