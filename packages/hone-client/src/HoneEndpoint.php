@@ -16,26 +16,35 @@ final readonly class HoneEndpoint
     public function ingestUrl(): string
     {
         $path = parse_url($this->configuredUrl, PHP_URL_PATH);
+
+        if (is_string($path) && $path !== '' && $path !== '/') {
+            return $this->configuredUrl;
+        }
+
         $suffixOffset = strcspn($this->configuredUrl, '?#');
         $url = rtrim(substr($this->configuredUrl, 0, $suffixOffset), '/');
         $suffix = substr($this->configuredUrl, $suffixOffset);
-
-        if (is_string($path) && $path !== '' && $path !== '/') {
-            return $url.$suffix;
-        }
 
         return $url.'/ingest'.$suffix;
     }
 
     public function capabilitiesUrl(): string
     {
-        $url = rtrim($this->configuredUrl, '/');
+        $components = parse_url($this->configuredUrl);
 
-        if (str_ends_with($url, '/ingest')) {
-            $url = substr($url, 0, -strlen('/ingest'));
+        if (! is_array($components)) {
+            return rtrim($this->configuredUrl, '/').'/capabilities';
         }
 
-        return $url.'/capabilities';
+        $path = rtrim((string) ($components['path'] ?? ''), '/');
+
+        if (str_ends_with($path, '/ingest')) {
+            $path = substr($path, 0, -strlen('/ingest'));
+        }
+
+        $components['path'] = $path.'/capabilities';
+
+        return $this->buildUrl($components);
     }
 
     public function discoveryCacheKey(): string
@@ -66,5 +75,27 @@ final readonly class HoneEndpoint
             && ! array_key_exists('user', $parts)
             && ! array_key_exists('pass', $parts)
             && ! array_key_exists('fragment', $parts);
+    }
+
+    /**
+     * @param  array{scheme?: string, host?: string, port?: int, user?: string, pass?: string, path?: string, query?: string, fragment?: string}  $components
+     */
+    private function buildUrl(array $components): string
+    {
+        $url = isset($components['scheme']) ? $components['scheme'].'://' : '';
+
+        if (isset($components['user'])) {
+            $url .= $components['user'];
+            $url .= isset($components['pass']) ? ':'.$components['pass'] : '';
+            $url .= '@';
+        }
+
+        $url .= $components['host'] ?? '';
+        $url .= isset($components['port']) ? ':'.$components['port'] : '';
+        $url .= $components['path'] ?? '';
+        $url .= array_key_exists('query', $components) ? '?'.$components['query'] : '';
+        $url .= array_key_exists('fragment', $components) ? '#'.$components['fragment'] : '';
+
+        return $url;
     }
 }

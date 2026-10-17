@@ -878,6 +878,45 @@ it('refreshes and uses a discovered ingest url with the console timeout budget',
         && $request->hasHeader('Authorization', 'Bearer secret-token'));
 });
 
+it('places capabilities before the configured query without sending the bearer token', function (string $configuredUrl, string $capabilitiesUrl): void {
+    app()->instance(CacheRepository::class, honeArrayCache());
+
+    config()->set([
+        'hone.url' => $configuredUrl,
+        'hone.token' => 'secret-token',
+        'hone.discover_ingest' => true,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake([
+        $capabilitiesUrl => Http::response(['ingest' => ['url' => 'https://ingest.hone.test/ingest']]),
+    ]);
+
+    $this->artisan('hone:refresh-ingest')->assertExitCode(0);
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->url() === $capabilitiesUrl
+        && ! $request->hasHeader('Authorization'));
+})->with([
+    'canonical ingest endpoint' => [
+        'https://hone.test/ingest?region=eu',
+        'https://hone.test/capabilities?region=eu',
+    ],
+    'base origin' => [
+        'https://hone.test?region=eu',
+        'https://hone.test/capabilities?region=eu',
+    ],
+    'custom endpoint' => [
+        'https://hone.test/custom-collector?region=eu',
+        'https://hone.test/custom-collector/capabilities?region=eu',
+    ],
+]);
+
+it('keeps query and fragment components after the capabilities path', function (): void {
+    expect((new HoneEndpoint('https://hone.test/ingest?region=eu#client'))->capabilitiesUrl())
+        ->toBe('https://hone.test/capabilities?region=eu#client');
+});
+
 it('keeps the configured endpoint as fallback and normalizes a base url once', function (string $configuredUrl, string $expectedUrl): void {
     Http::preventStrayRequests();
     Http::fake([
@@ -892,18 +931,18 @@ it('keeps the configured endpoint as fallback and normalizes a base url once', f
     'full endpoint remains exact' => ['https://hone.test/ingest', 'https://hone.test/ingest'],
     'base without slash gains one ingest segment' => ['https://hone.test', 'https://hone.test/ingest'],
     'base with slash gains one ingest segment' => ['https://hone.test/', 'https://hone.test/ingest'],
-    'canonical endpoint trailing slash is normalized' => ['https://hone.test/ingest/', 'https://hone.test/ingest'],
+    'canonical endpoint trailing slash remains exact' => ['https://hone.test/ingest/', 'https://hone.test/ingest/'],
     'custom full endpoint remains exact' => ['https://hone.test/custom-collector', 'https://hone.test/custom-collector'],
-    'custom full endpoint trailing slash is normalized' => ['https://hone.test/custom-collector/', 'https://hone.test/custom-collector'],
+    'custom full endpoint trailing slash remains exact' => ['https://hone.test/custom-collector/', 'https://hone.test/custom-collector/'],
 ]);
 
 it('keeps the original HoneIngest constructor usable without a discovery collaborator', function (): void {
     Http::fake([
-        'https://hone.test/custom-collector' => Http::response([], 202),
+        'https://hone.test/custom-collector/' => Http::response([], 202),
     ]);
 
     $ingest = new HoneIngest(
-        url: 'https://hone.test/custom-collector',
+        url: 'https://hone.test/custom-collector/',
         token: 'secret-token',
         app: 'checkout',
         deploy: 'abc123',
@@ -920,7 +959,7 @@ it('keeps the original HoneIngest constructor usable without a discovery collabo
     $ingest->writeNow(['t' => 'query']);
 
     Http::assertSentCount(1);
-    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/custom-collector');
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://hone.test/custom-collector/');
 });
 
 it('falls back without discovery network traffic on every delivery path', function (string $path, string $cacheState): void {
