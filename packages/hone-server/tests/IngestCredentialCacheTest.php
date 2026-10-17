@@ -153,6 +153,12 @@ it('uses a fixed TTL while preserving attribution and secret-free cache data', f
 it('bypasses the cache entirely when its TTL is zero', function (): void {
     config()->set('hone-server.ingest.credential_cache_ttl', 0);
     $minted = $this->mintCredential(ingestCacheCredentialAttributes());
+    $key = 'hone-server:ingest-credential:'.hash('sha256', $minted->plaintext());
+    $planted = [
+        'credential_id' => $minted->credential->id,
+        'subject_ref' => 'forged-source',
+    ];
+    Cache::put($key, $planted, 60);
     $observed = watchIngestCredentialBoundaries();
 
     $this->actingAsCredential($minted)
@@ -161,14 +167,16 @@ it('bypasses the cache entirely when its TTL is zero', function (): void {
     $this->travel(1)->seconds();
     $this->postJson('/ingest', ingestCacheEnvelope())->assertAccepted();
 
-    $key = 'hone-server:ingest-credential:'.hash('sha256', $minted->plaintext());
-
     expect($observed->lookups)->toBe(2)
         ->and($observed->usageWrites)->toBe(2)
         ->and($observed->cacheWrites)->toBe([])
-        ->and(Cache::has($key))->toBeFalse()
+        ->and(Cache::get($key))->toBe($planted)
         ->and($minted->credential->refresh()->last_used_at?->toDateTimeString())->toBe(now()->toDateTimeString());
-    Queue::assertPushed(ProcessTelemetryBatch::class);
+
+    $jobs = Queue::pushed(ProcessTelemetryBatch::class);
+
+    expect($jobs)->not->toBeEmpty()
+        ->and($jobs->every(fn (ProcessTelemetryBatch $job): bool => $job->app === 'checkout'))->toBeTrue();
 });
 
 it('never caches rejected credentials', function (array|Closure $attributes): void {
