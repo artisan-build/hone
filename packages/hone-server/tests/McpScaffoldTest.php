@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\Actions\RevokeCredential;
 use ArtisanBuild\BuiltForCloud\AuditActorType;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\AssertionBurn;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleEntryRefusalReason;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
@@ -368,18 +370,38 @@ it('returns the same installation-wide telemetry to distinct qualified delegated
         'email' => 'numeric-collision@example.test',
         'password' => Hash::make('test-password'),
     ]));
+    $observedPrincipals = [];
+    app()->rebinding('request', static function (mixed $application, Request $request) use (&$observedPrincipals): void {
+        $request->attributes->set(
+            ActingPrincipalResolver::OBSERVER_ATTRIBUTE,
+            static function (ActingPrincipal $principal) use (&$observedPrincipals): void {
+                $observedPrincipals[] = $principal;
+            },
+        );
+    });
+    $postCollisionResponse = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion(['sub' => 'delegated-primary']),
+    ])->assertOk();
+    $postCollisionObservation = collect($observedPrincipals)->sole();
     $secondResponse = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
         'Authorization' => 'Bearer '.honeMcpAssertion(['sub' => 'delegated-secondary']),
     ])->assertOk();
     $secondActor = DelegatedActor::query()->where('subject', 'delegated-secondary')->sole();
     $firstResult = json_decode((string) $firstResponse->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+    $postCollisionResult = json_decode((string) $postCollisionResponse->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
     $secondResult = json_decode((string) $secondResponse->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
 
     expect($firstActor->getKey())->toBe($localUser->getKey())
         ->and($firstActor->getAuthIdentifier())->toBe('bfc-console:'.$localUser->getKey())
         ->and($firstActor->getAuthIdentifier())->not->toBe((string) $localUser->getKey())
+        ->and($postCollisionObservation->identifier())->toBe('bfc-console:'.$localUser->getKey())
+        ->and($postCollisionObservation->identifier())->not->toBe((string) $localUser->getKey())
+        ->and($postCollisionObservation->delegated)->toBeTrue()
+        ->and($postCollisionObservation->principal)->toBeInstanceOf(DelegatedActor::class)
+        ->and($postCollisionObservation->principal)->not->toBeInstanceOf(User::class)
         ->and($secondActor->getAuthIdentifier())->toStartWith('bfc-console:')
         ->and($secondActor->getAuthIdentifier())->not->toBe($firstActor->getAuthIdentifier())
+        ->and($postCollisionResult)->toBe($firstResult)
         ->and($firstResult)->toBe($secondResult)
         ->and($firstResult['apps'])->toHaveCount(1)
         ->and($firstResult['apps'][0]['app'])->toBe('installation-wide-fixture');
