@@ -19,21 +19,20 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
-use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Description('List apps reporting telemetry to Hone within a lookback window with their latest raw event timestamp.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
 #[ToolEffect(Effect::Read)]
-final class ListAppsTool extends Tool
+final class ListAppsTool extends HoneTool
 {
     use AdvertisesToolClassification;
     use AdvertisesToolEffect;
     use BoundsRawEventLookback;
     use RespectsEffectCeiling;
 
-    public function handle(Request $request): Response
+    protected function handleTelemetry(Request $request): Response
     {
         $lookback = $this->lookback($request->validate($this->lookbackRules()));
 

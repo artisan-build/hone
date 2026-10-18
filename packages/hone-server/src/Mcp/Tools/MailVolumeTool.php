@@ -14,7 +14,6 @@ use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\HoneServer\Mcp\Tools\Concerns\HandlesTotalVolumeTool;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
-use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('mail_volume')]
@@ -22,7 +21,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
 #[ToolEffect(Effect::Read)]
-final class MailVolumeTool extends Tool
+final class MailVolumeTool extends HoneTool
 {
     use AdvertisesToolClassification;
     use AdvertisesToolEffect;

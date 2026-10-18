@@ -19,7 +19,6 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
-use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('guest_traffic_clusters')]
@@ -27,14 +26,14 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
 #[ToolEffect(Effect::Read)]
-final class GuestTrafficClustersTool extends Tool
+final class GuestTrafficClustersTool extends HoneTool
 {
     use AdvertisesToolClassification;
     use AdvertisesToolEffect;
     use BoundsActivityTimelineWindow;
     use RespectsEffectCeiling;
 
-    public function handle(Request $request): Response
+    protected function handleTelemetry(Request $request): Response
     {
         $validated = $request->validate($this->activityWindowRules());
         $window = $this->activityWindow($validated);

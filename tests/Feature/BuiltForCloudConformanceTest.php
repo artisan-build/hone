@@ -28,6 +28,7 @@ use ArtisanBuild\BuiltForCloud\Jobs\DeliverOwnershipWebhook;
 use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
 use ArtisanBuild\BuiltForCloud\Testing\FleetConformance;
+use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedEnforcement;
 use ArtisanBuild\HoneServer\Commands\BackfillCommand;
 use ArtisanBuild\HoneServer\Commands\HealthCommand;
 use ArtisanBuild\HoneServer\Commands\MaintainCommand;
@@ -198,7 +199,44 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
             TopUsersTool::class,
         ]),
     ];
+    $delegatedArguments = [
+        AwakeSegmentsTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+            'compute_idle_minutes' => 1,
+            'db_idle_minutes' => 1,
+        ],
+        BackgroundDbActivityTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+        ],
+        EdgeProfileTool::class => ['app' => 'delegated-probe'],
+        GuestDbRoutesTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+        ],
+        GuestTrafficClustersTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+        ],
+        QueryMetricTool::class => ['record_type' => 'query', 'metric' => 'count'],
+        RegressionCheckTool::class => [
+            'record_type' => 'query',
+            'normalized_key' => 'delegated-probe',
+            'metric' => 'count',
+        ],
+    ];
 
+    McpDelegatedEnforcement::assertHonors(
+        HoneMcpServer::class,
+        $expected['mcp_delegated'],
+        arguments: $delegatedArguments,
+    );
+    $delegatedProbe = McpDelegatedEnforcement::probe(HoneMcpServer::class, arguments: $delegatedArguments);
     $report = (new FleetConformance($this))->assert(new ConsumerConformance(
         consumer: 'hone',
         consumerRoot: base_path(),
@@ -213,6 +251,13 @@ it('passes the package consumer conformance spec for the complete Hone consumer'
     ));
 
     expect($report->passed)->toBeTrue()
+        ->and($delegatedProbe['tools'])->toBe($expected['mcp_delegated'])
+        ->and($delegatedProbe['invoked'])->toBe($expected['mcp_delegated'])
+        ->and($delegatedProbe['refusals'])->toBe([])
+        ->and($delegatedProbe['principal_mismatches'])->toBe([])
+        ->and($delegatedProbe['unreached'])->toBe([])
+        ->and($delegatedProbe['negative_authorization'])->toBe('absent')
+        ->and($delegatedProbe['violations'])->toBe([])
         ->and(is_a(ProcessTelemetryBatch::class, SystemAuthorityQueueEntry::class, true))->toBeTrue()
         ->and(array_keys($report->families))->toBe(ConsumerConformance::FAMILIES)
         ->and($providerFiles)->toContain(
@@ -236,21 +281,23 @@ it('keeps supported credential configuration and guidance on fixed-purpose packa
     foreach ($supportedFiles as $path) {
         $contents = file_get_contents($path);
 
-        expect($contents)
-            ->toBeString()
-            ->not->toContain(
-                'FALLBACK_TOKEN',
-                'HONE_APP_TOKENS',
-                'HONE_MCP_TOKEN',
-                'TokenRegistry',
-                'ApiToken',
-                'api_tokens',
-                'token:create',
-                'token:rotate',
-                'token:revoke',
-                'token:list',
-                'token:usage',
-            );
+        expect($contents)->toBeString();
+
+        foreach ([
+            'FALLBACK_TOKEN',
+            'HONE_APP_TOKENS',
+            'HONE_MCP_TOKEN',
+            'TokenRegistry',
+            'ApiToken',
+            'api_tokens',
+            'token:create',
+            'token:rotate',
+            'token:revoke',
+            'token:list',
+            'token:usage',
+        ] as $unsupportedCredentialReference) {
+            expect($contents)->not->toContain($unsupportedCredentialReference);
+        }
 
         preg_match_all('/php artisan bfc:credential:(?:mint|rotate|revoke)[^\n\x60]*/', $contents, $stateChangingCommands);
 

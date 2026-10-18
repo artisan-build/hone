@@ -13,7 +13,7 @@ use Laravel\Mcp\Response;
 
 trait HandlesSlowMetricTool
 {
-    public function handle(Request $request): Response
+    protected function handleTelemetry(Request $request): Response
     {
         $validated = $request->validate([
             'app' => ['nullable', 'string', 'max:255'],

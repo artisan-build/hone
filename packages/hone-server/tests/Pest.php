@@ -5,6 +5,7 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\RequestEffectCeiling;
+use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\HoneServer\Tests\Support\LiveParityTestCase;
 use ArtisanBuild\HoneServer\Tests\TestCase;
 use Carbon\CarbonImmutable;
@@ -20,7 +21,10 @@ uses(LiveParityTestCase::class)->in('Parity');
 
 uses()->beforeEach(function (): void {
     RequestEffectCeiling::publish(app('request'), Effect::Destructive->value);
-})->in('McpScaffoldTest.php', 'McpIdleCostToolsTest.php', 'McpMetricToolsTest.php');
+    $principal = new User;
+    $principal->forceFill(['id' => 1]);
+    app('request')->setUserResolver(static fn (): User => $principal);
+})->in('McpScaffoldTest.php', 'McpIdleCostToolsTest.php', 'McpMetricToolsTest.php', 'IngestTargetHealthTest.php');
 
 function honeMcpTestSigningKey(): AsymmetricSecretKey
 {
@@ -97,9 +101,10 @@ function honeMcpAbsent(): string
 }
 
 /**
+ * @param  array<string, mixed>  $arguments
  * @return array<string, mixed>
  */
-function honeMcpToolCall(string $name = 'list-apps-tool'): array
+function honeMcpToolCall(string $name = 'list-apps-tool', array $arguments = []): array
 {
     return [
         'jsonrpc' => '2.0',
@@ -107,7 +112,7 @@ function honeMcpToolCall(string $name = 'list-apps-tool'): array
         'method' => 'tools/call',
         'params' => [
             'name' => $name,
-            'arguments' => [],
+            'arguments' => $arguments,
         ],
     ];
 }

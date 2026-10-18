@@ -7,6 +7,7 @@ use ArtisanBuild\BuiltForCloud\AuditActorType;
 use ArtisanBuild\BuiltForCloud\Console\AssertionBurn;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleEntryRefusalReason;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
+use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialAuditEvent;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
@@ -20,9 +21,12 @@ use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\BuiltForCloud\OperatorAbility;
 use ArtisanBuild\BuiltForCloud\SubjectType;
+use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedEnforcement;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
 use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
+use ArtisanBuild\BuiltForCloud\User;
+use ArtisanBuild\HoneServer\Contracts\NameserverResolver;
 use ArtisanBuild\HoneServer\Mcp\HoneMcpServer;
 use ArtisanBuild\HoneServer\Mcp\Tools\AwakeSegmentsTool;
 use ArtisanBuild\HoneServer\Mcp\Tools\BackgroundDbActivityTool;
@@ -53,6 +57,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Facades\Mcp;
@@ -65,8 +70,76 @@ it('loads the framework migrations required for delegated assertions', function 
         ->and(Schema::hasTable('bfc_console_assertion_burns'))->toBeTrue();
 });
 
-it('conforms every advertised tool to the delegated MCP contract', function (): void {
-    McpDelegatedTools::assertConforms(HoneMcpServer::class);
+it('honors delegated callers across the exact registered tool set', function (): void {
+    $expectedTools = [
+        AwakeSegmentsTool::class,
+        BackgroundDbActivityTool::class,
+        CacheStatsTool::class,
+        CommandStatsTool::class,
+        DeploysTool::class,
+        EdgeProfileTool::class,
+        ExceptionsTool::class,
+        GuestDbRoutesTool::class,
+        GuestTrafficClustersTool::class,
+        IngestFreshnessTool::class,
+        ListAppsTool::class,
+        LogVolumeByLevelTool::class,
+        MailVolumeTool::class,
+        NotificationVolumeTool::class,
+        QueryMetricTool::class,
+        QueueThroughputTool::class,
+        RecordTypesTool::class,
+        RegressionCheckTool::class,
+        ScheduledTaskHealthTool::class,
+        SlowJobsTool::class,
+        SlowOutgoingRequestsTool::class,
+        SlowQueriesTool::class,
+        SlowRequestsTool::class,
+        TopUsersTool::class,
+    ];
+    $arguments = [
+        AwakeSegmentsTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+            'compute_idle_minutes' => 1,
+            'db_idle_minutes' => 1,
+        ],
+        BackgroundDbActivityTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+        ],
+        EdgeProfileTool::class => ['app' => 'delegated-probe'],
+        GuestDbRoutesTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+        ],
+        GuestTrafficClustersTool::class => [
+            'app' => 'delegated-probe',
+            'from' => '2026-01-01T00:00:00Z',
+            'to' => '2026-01-01T00:00:00Z',
+        ],
+        QueryMetricTool::class => ['record_type' => 'query', 'metric' => 'count'],
+        RegressionCheckTool::class => [
+            'record_type' => 'query',
+            'normalized_key' => 'delegated-probe',
+            'metric' => 'count',
+        ],
+    ];
+
+    McpDelegatedEnforcement::assertHonors(HoneMcpServer::class, $expectedTools, arguments: $arguments);
+    $probe = McpDelegatedEnforcement::probe(HoneMcpServer::class, arguments: $arguments);
+    sort($expectedTools);
+
+    expect($probe['tools'])->toBe($expectedTools)
+        ->and($probe['invoked'])->toBe($expectedTools)
+        ->and($probe['refusals'])->toBe([])
+        ->and($probe['principal_mismatches'])->toBe([])
+        ->and($probe['unreached'])->toBe([])
+        ->and($probe['negative_authorization'])->toBe('absent')
+        ->and($probe['violations'])->toBe([]);
 });
 
 it('advertises the read effect for the exact registered tool set', function (): void {
@@ -221,12 +294,18 @@ it('reflects the latest occurred at timestamp for ingest freshness', function ()
 
 it('fails closed for unauthenticated web mcp requests', function (?string $presentedToken): void {
     config()->set('built-for-cloud.fallback_token', null);
+    DB::connection('hone')->flushQueryLog();
+    DB::connection('hone')->enableQueryLog();
 
-    $request = $this->postJson((string) config('hone-server.mcp.path'), [], $presentedToken === null ? [] : [
+    $request = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), $presentedToken === null ? [] : [
         'Authorization' => 'Bearer '.$presentedToken,
     ]);
+    $telemetryQueries = collect(DB::connection('hone')->getQueryLog())
+        ->filter(static fn (array $query): bool => str_contains($query['query'], 'raw_events'));
+    DB::connection('hone')->disableQueryLog();
 
     $request->assertUnauthorized();
+    expect($telemetryQueries)->toBeEmpty();
 })->with([
     'missing bearer token' => [null],
     'unknown bearer token' => ['wrong-token'],
@@ -273,6 +352,71 @@ it('returns a real tool result for an MCP-purpose delegated assertion', function
         ->and($result['apps'])->toHaveCount(1)
         ->and($result['apps'][0]['app'])->toBe('checkout')
         ->and($result['apps'][0]['last_seen'])->toBeString();
+});
+
+it('returns the same installation-wide telemetry to distinct qualified delegated subjects', function (): void {
+    Carbon::setTestNow('2026-10-18 12:00:00+00');
+    RawEvent::factory()->create(['app' => 'installation-wide-fixture']);
+
+    $firstResponse = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion(['sub' => 'delegated-primary']),
+    ])->assertOk();
+    $firstActor = DelegatedActor::query()->where('subject', 'delegated-primary')->sole();
+    $localUser = User::unguarded(static fn (): User => User::query()->create([
+        'id' => $firstActor->getKey(),
+        'name' => 'Numeric Collision',
+        'email' => 'numeric-collision@example.test',
+        'password' => Hash::make('test-password'),
+    ]));
+    $secondResponse = $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion(['sub' => 'delegated-secondary']),
+    ])->assertOk();
+    $secondActor = DelegatedActor::query()->where('subject', 'delegated-secondary')->sole();
+    $firstResult = json_decode((string) $firstResponse->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+    $secondResult = json_decode((string) $secondResponse->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($firstActor->getKey())->toBe($localUser->getKey())
+        ->and($firstActor->getAuthIdentifier())->toBe('bfc-console:'.$localUser->getKey())
+        ->and($firstActor->getAuthIdentifier())->not->toBe((string) $localUser->getKey())
+        ->and($secondActor->getAuthIdentifier())->toStartWith('bfc-console:')
+        ->and($secondActor->getAuthIdentifier())->not->toBe($firstActor->getAuthIdentifier())
+        ->and($firstResult)->toBe($secondResult)
+        ->and($firstResult['apps'])->toHaveCount(1)
+        ->and($firstResult['apps'][0]['app'])->toBe('installation-wide-fixture');
+});
+
+it('returns 401 before telemetry or DNS work for an inactive delegated subject', function (): void {
+    $this->postJson((string) config('hone-server.mcp.path'), honeMcpToolCall(), [
+        'Authorization' => 'Bearer '.honeMcpAssertion(['sub' => 'inactive-delegated-subject']),
+    ])->assertOk();
+    DelegatedActor::query()->where('subject', 'inactive-delegated-subject')->sole()->deactivate();
+    $nameservers = new class implements NameserverResolver
+    {
+        public int $calls = 0;
+
+        public function resolve(string $domain): array
+        {
+            $this->calls++;
+
+            return [];
+        }
+    };
+    app()->instance(NameserverResolver::class, $nameservers);
+    DB::connection('hone')->flushQueryLog();
+    DB::connection('hone')->enableQueryLog();
+
+    $response = $this->postJson(
+        (string) config('hone-server.mcp.path'),
+        honeMcpToolCall('edge_profile', ['app' => 'hone.example.test']),
+        ['Authorization' => 'Bearer '.honeMcpAssertion(['sub' => 'inactive-delegated-subject'])],
+    );
+    $telemetryQueries = collect(DB::connection('hone')->getQueryLog())
+        ->filter(static fn (array $query): bool => str_contains($query['query'], 'request_activity_buckets'));
+    DB::connection('hone')->disableQueryLog();
+
+    $response->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
+    expect($telemetryQueries)->toBeEmpty()
+        ->and($nameservers->calls)->toBe(0);
 });
 
 it('refuses the same delegated assertion when it is replayed', function (): void {

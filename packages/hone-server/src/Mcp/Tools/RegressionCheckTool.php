@@ -19,7 +19,6 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
-use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('regression_check')]
@@ -27,13 +26,13 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
 #[ToolEffect(Effect::Read)]
-final class RegressionCheckTool extends Tool
+final class RegressionCheckTool extends HoneTool
 {
     use AdvertisesToolClassification;
     use AdvertisesToolEffect;
     use RespectsEffectCeiling;
 
-    public function handle(Request $request): Response
+    protected function handleTelemetry(Request $request): Response
     {
         $validated = $request->validate([
             'record_type' => ['required', 'string', 'max:255'],

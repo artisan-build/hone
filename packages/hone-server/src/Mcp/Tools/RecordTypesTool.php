@@ -19,21 +19,20 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
-use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Description('List raw telemetry record types and counts within a lookback window, optionally scoped to one app.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]
 #[ToolEffect(Effect::Read)]
-final class RecordTypesTool extends Tool
+final class RecordTypesTool extends HoneTool
 {
     use AdvertisesToolClassification;
     use AdvertisesToolEffect;
     use BoundsRawEventLookback;
     use RespectsEffectCeiling;
 
-    public function handle(Request $request): Response
+    protected function handleTelemetry(Request $request): Response
     {
         $validated = $request->validate([
             'app' => ['nullable', 'string', 'max:255'],
