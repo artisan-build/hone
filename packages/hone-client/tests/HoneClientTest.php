@@ -1398,6 +1398,27 @@ it('gives a web ingest post the observed Hone latency as its budget', function (
 
     // The suite always runs in console, so the web budget is taken from the
     // shipped config the way the service provider takes it for a web request.
+    $shippedConnectTimeout = (float) config('hone.connect_timeout');
+    $shippedTimeout = (float) config('hone.timeout');
+
+    $ingest = honeIngest(
+        connectTimeout: $shippedConnectTimeout,
+        timeout: $shippedTimeout,
+    );
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->digest();
+
+    expect($envelopes)->toHaveCount(1)
+        ->and($options['timeout'])->toBe(2.5)
+        ->and($options['connect_timeout'])->toBe(1.5);
+});
+
+it('gives a web ingest post a connect budget a cold edge can finish inside', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([], $envelopes, $options);
+
     $ingest = honeIngest(
         connectTimeout: (float) config('hone.connect_timeout'),
         timeout: (float) config('hone.timeout'),
@@ -1406,9 +1427,39 @@ it('gives a web ingest post the observed Hone latency as its budget', function (
     $ingest->write(['t' => 'query', 'index' => 1]);
     $ingest->digest();
 
-    expect($envelopes)->toHaveCount(1)
-        ->and($options['timeout'])->toBe(2.5)
-        ->and($options['connect_timeout'])->toBe(0.5);
+    // 0.5s was the budget Scalpels production dropped batches at with cURL
+    // error 28, and the total budget is the worst case the terminate path may
+    // hold a worker for, so the connect phase can never be allowed past it.
+    expect($options['connect_timeout'])->toBeGreaterThan(0.5)
+        ->and($options['connect_timeout'])->toBeLessThanOrEqual($options['timeout']);
+});
+
+it('clamps a configured web connect timeout down to the total budget', function (): void {
+    $sentOptions = null;
+
+    Http::fake(function (Request $request, array $options) use (&$sentOptions) {
+        $sentOptions = $options;
+
+        return Http::response();
+    });
+
+    config()->set([
+        'hone.url' => 'https://hone.test/ingest',
+        'hone.token' => 'secret-token',
+        'hone.connect_timeout' => 9.0,
+        'hone.timeout' => 2.5,
+    ]);
+
+    (new ReflectionProperty(app(), 'isRunningInConsole'))->setValue(app(), false);
+    bindFakeNightwatchCore();
+    (new HoneClientServiceProvider(app()))->register();
+
+    $ingest = app(HoneIngest::class);
+    $ingest->write(['t' => 'query']);
+    $ingest->digest();
+
+    expect($sentOptions['connect_timeout'])->toBe(2.5)
+        ->and($sentOptions['timeout'])->toBe(2.5);
 });
 
 it('carries a dropped batch loss count to Hone in a later request', function (): void {

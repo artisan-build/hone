@@ -913,7 +913,7 @@ defaults shown.
 | `NIGHTWATCH_ENABLED` | Nightwatch's own default | Nightwatch's collection switch. `hone:install` sets it to `true` if it is not already truthy. |
 | `NIGHTWATCH_DEPLOY` | Nightwatch's resolved deploy | The deploy identifier written into every envelope, usually a short commit SHA. Unset, the client sends the deploy Nightwatch resolved from Laravel Cloud, Forge or Vapor. |
 | `HONE_BUFFER` | `500` | Records held in memory before the oldest are dropped. Hone drops rather than posting mid-request. |
-| `HONE_CONNECT_TIMEOUT` | `0.5` | Connect timeout in seconds; values below `0.05` are clamped to `0.05`. |
+| `HONE_CONNECT_TIMEOUT` | `1.5` | Connect timeout in seconds, covering DNS, TCP and TLS. Values below `0.05` are clamped up to `0.05`, and a value above `HONE_TIMEOUT` is clamped down to it. |
 | `HONE_TIMEOUT` | `2.5` | Total timeout in seconds for one web ingest post, which runs after the response has been sent; values below `0.05` are clamped to `0.05`. |
 
 The client turns itself on when **both** `HONE_URL` and `HONE_TOKEN` are set — there is no separate

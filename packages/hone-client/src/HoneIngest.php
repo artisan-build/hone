@@ -40,6 +40,11 @@ final class HoneIngest implements Ingest
 
     private bool $overflowWarningLogged = false;
 
+    /**
+     * The connect budget, never above the total budget: cURL measures both from
+     * the same instant, so a connect timeout larger than the total one can
+     * never be reached and only misleads whoever reads the configuration.
+     */
     private readonly float $connectTimeout;
 
     private readonly float $timeout;
@@ -60,8 +65,8 @@ final class HoneIngest implements Ingest
         private readonly ?CacheRepository $cache = null,
         private readonly ?IngestDiscovery $discovery = null,
     ) {
-        $this->connectTimeout = max(self::MINIMUM_TIMEOUT, $connectTimeout);
         $this->timeout = max(self::MINIMUM_TIMEOUT, $timeout);
+        $this->connectTimeout = min($this->timeout, max(self::MINIMUM_TIMEOUT, $connectTimeout));
     }
 
     /**
