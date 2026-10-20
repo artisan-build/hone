@@ -197,6 +197,44 @@ function fakeHoneIngestEndpoint(array $timeOutOnAttempts, array &$envelopes, arr
     });
 }
 
+/**
+ * Fake the ingest endpoint so every attempt fails the way a cURL transfer
+ * does: Laravel's own ConnectionException wrapping a transport exception that
+ * carries the given curl_getinfo fields as its handler context.
+ *
+ * The transport exception is a stand-in rather than the real Guzzle class
+ * because only Guzzle 7 attaches a handler context to its exceptions, and
+ * hone-client's own suite resolves Guzzle 8. The stand-in holds that shape:
+ * a getHandlerContext() returning the curl_getinfo array.
+ *
+ * @param  array<string, mixed>  $handlerContext
+ */
+function fakeHoneIngestCurlFailure(array $handlerContext): void
+{
+    Http::fake(function () use ($handlerContext): never {
+        $transport = new class('cURL error 28: Operation timed out after 500 milliseconds with 0 bytes received', $handlerContext) extends RuntimeException
+        {
+            /**
+             * @param  array<string, mixed>  $handlerContext
+             */
+            public function __construct(string $message, private readonly array $handlerContext)
+            {
+                parent::__construct($message);
+            }
+
+            /**
+             * @return array<string, mixed>
+             */
+            public function getHandlerContext(): array
+            {
+                return $this->handlerContext;
+            }
+        };
+
+        throw new ConnectionException($transport->getMessage(), 0, $transport);
+    });
+}
+
 it('rebinds nightwatch core ingest when url and token are configured', function (): void {
     config()->set('hone.url', 'https://hone.test/ingest');
     config()->set('hone.token', 'secret-token');
@@ -1389,6 +1427,113 @@ it('never drops a web batch silently when the ingest post times out', function (
         ->and($warnings[0]['context']['dropped_records'])->toBe(2)
         ->and($warnings[0]['context']['exception'])->toBeInstanceOf(ConnectionException::class)
         ->and($logger->recordsAtLevel('debug'))->toBe([]);
+});
+
+it('reports where the time went when a delivery fails on cURL', function (): void {
+    fakeHoneIngestCurlFailure([
+        'namelookup_time' => 0.024956,
+        'connect_time' => 0.144232,
+        'appconnect_time' => 0.3011,
+        'total_time' => 0.501529,
+        'errno' => 28,
+        'url' => 'https://hone.test/ingest',
+    ]);
+
+    $logger = honeRecordingLogger();
+    $ingest = honeIngest(logger: $logger);
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->write(['t' => 'query', 'index' => 2]);
+    $ingest->digest();
+
+    $warnings = $logger->recordsAtLevel('warning');
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0]['message'])->toBe('Hone ingest delivery failed; dropped 2 telemetry records.')
+        ->and($warnings[0]['context']['dropped_records'])->toBe(2)
+        ->and($warnings[0]['context']['namelookup_ms'])->toBe(25)
+        ->and($warnings[0]['context']['connect_ms'])->toBe(144)
+        ->and($warnings[0]['context']['tls_ms'])->toBe(301)
+        ->and($warnings[0]['context']['total_ms'])->toBe(502)
+        ->and($warnings[0]['context']['exception'])->toBeInstanceOf(ConnectionException::class)
+        // Only the timings are carried over: no URL, no error fields, nothing
+        // else the handler context happens to hold.
+        ->and(array_keys($warnings[0]['context']))->toBe([
+            'dropped_records',
+            'namelookup_ms',
+            'connect_ms',
+            'tls_ms',
+            'total_ms',
+            'exception',
+        ]);
+});
+
+it('leaves out a phase timing the cURL failure does not carry', function (): void {
+    fakeHoneIngestCurlFailure([
+        'namelookup_time' => 0.0,
+        'total_time' => 0.009713,
+        'connect_time' => null,
+        'appconnect_time' => 'unavailable',
+    ]);
+
+    $logger = honeRecordingLogger();
+    $ingest = honeIngest(logger: $logger);
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->digest();
+
+    $warnings = $logger->recordsAtLevel('warning');
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0]['context']['namelookup_ms'])->toBe(0)
+        ->and($warnings[0]['context']['total_ms'])->toBe(10)
+        ->and($warnings[0]['context'])->not->toHaveKey('connect_ms')
+        ->and($warnings[0]['context'])->not->toHaveKey('tls_ms');
+});
+
+it('still warns about a dropped batch when reading the cURL timings fails', function (): void {
+    Http::fake(function (): never {
+        $transport = new class('cURL error 28: Operation timed out') extends RuntimeException
+        {
+            public function getHandlerContext(): never
+            {
+                throw new LogicException('this transport does not carry a handler context');
+            }
+        };
+
+        throw new ConnectionException($transport->getMessage(), 0, $transport);
+    });
+
+    $logger = honeRecordingLogger();
+    $ingest = honeIngest(logger: $logger);
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->digest();
+
+    $warnings = $logger->recordsAtLevel('warning');
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0]['message'])->toBe('Hone ingest delivery failed; dropped 1 telemetry records.')
+        ->and(array_keys($warnings[0]['context']))->toBe(['dropped_records', 'exception']);
+});
+
+it('still warns about a dropped batch when the failure carries no cURL timings', function (): void {
+    $envelopes = [];
+    $options = [];
+    fakeHoneIngestEndpoint([1], $envelopes, $options);
+
+    $logger = honeRecordingLogger();
+    $ingest = honeIngest(logger: $logger);
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->digest();
+
+    $warnings = $logger->recordsAtLevel('warning');
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0]['message'])->toBe('Hone ingest delivery failed; dropped 1 telemetry records.')
+        ->and($warnings[0]['context']['dropped_records'])->toBe(1)
+        ->and(array_keys($warnings[0]['context']))->toBe(['dropped_records', 'exception']);
 });
 
 it('gives a web ingest post the observed Hone latency as its budget', function (): void {

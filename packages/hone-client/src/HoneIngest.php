@@ -26,6 +26,20 @@ final class HoneIngest implements Ingest
     private const LOSS_CARRY_SECONDS = 3600;
 
     /**
+     * The cURL phase timings worth reporting, mapped from the curl_getinfo
+     * field that carries each one. Every value is cumulative from the start of
+     * the transfer, which is how cURL reports them.
+     *
+     * @var array<string, string>
+     */
+    private const FAILURE_TIMING_FIELDS = [
+        'namelookup_ms' => 'namelookup_time',
+        'connect_ms' => 'connect_time',
+        'tls_ms' => 'appconnect_time',
+        'total_ms' => 'total_time',
+    ];
+
+    /**
      * @var list<array<string, mixed>>
      */
     private array $buffer = [];
@@ -225,14 +239,86 @@ final class HoneIngest implements Ingest
      */
     private function warnAboutFailedDelivery(int $records, Throwable $e): void
     {
+        $timings = $this->failureTimings($e);
+
         try {
             $this->logger->warning(
                 "Hone ingest delivery failed; dropped {$records} telemetry records.",
-                ['dropped_records' => $records, 'exception' => $e],
+                ['dropped_records' => $records, ...$timings, 'exception' => $e],
             );
         } catch (Throwable) {
             // Fail open even if the host application's logger is unavailable.
         }
+    }
+
+    /**
+     * Where the time went before the delivery failed, in whole cumulative
+     * milliseconds.
+     *
+     * Whoever reads a dropped batch needs to know whether the budget went on
+     * resolving the host, opening the socket or the TLS handshake, and a cURL
+     * failure already carries that breakdown. Nothing is measured here and
+     * nothing is asked of the transport, so a successful delivery does no work
+     * at all.
+     *
+     * A phase the transfer never reached is reported as cURL reports it, which
+     * is zero; only a field the context does not carry is left out.
+     *
+     * @return array<string, int>
+     */
+    private function failureTimings(Throwable $e): array
+    {
+        $context = $this->handlerContext($e);
+
+        $timings = [];
+
+        foreach (self::FAILURE_TIMING_FIELDS as $key => $field) {
+            $seconds = $context[$field] ?? null;
+
+            if (is_int($seconds) || is_float($seconds)) {
+                $timings[$key] = (int) round($seconds * 1000);
+            }
+        }
+
+        return $timings;
+    }
+
+    /**
+     * The handler context carried by the first exception in the chain that
+     * exposes one.
+     *
+     * Laravel's HTTP client wraps a transport failure in its own
+     * ConnectionException rather than replacing it, so the exception holding
+     * the context is the wrapper's previous exception. The context is read by
+     * capability rather than by class because whether an exception carries one
+     * at all depends on the Guzzle major the host application resolved: Guzzle
+     * 7 attaches the curl_getinfo fields to its transfer exceptions, and
+     * Guzzle 8 exposes them only through an on_stats callback, which this
+     * client does not install because it would run on every successful
+     * request. On a host where nothing carries a context, a failed delivery
+     * logs the warning without timings.
+     *
+     * @return array<string, mixed>
+     */
+    private function handlerContext(Throwable $e): array
+    {
+        for ($candidate = $e; $candidate !== null; $candidate = $candidate->getPrevious()) {
+            $readContext = [$candidate, 'getHandlerContext'];
+
+            if (! is_callable($readContext)) {
+                continue;
+            }
+
+            try {
+                $context = $readContext();
+            } catch (Throwable) {
+                return [];
+            }
+
+            return is_array($context) ? $context : [];
+        }
+
+        return [];
     }
 
     /**
