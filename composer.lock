@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b30af80f974a762437c90e1f4101bd02",
+    "content-hash": "db66f6e46f12732e5a245b9b25b91822",
     "packages": [
         {
             "name": "artisan-build/bfc-client",
@@ -70,16 +70,16 @@
         },
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.20.0",
+            "version": "v0.20.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "bad94c86d6a6310ef8f317cf45405fcd4f0f99d8"
+                "reference": "d59ccd09ad42df34164a2aafd6772e0cbb7f050f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/bad94c86d6a6310ef8f317cf45405fcd4f0f99d8",
-                "reference": "bad94c86d6a6310ef8f317cf45405fcd4f0f99d8",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/d59ccd09ad42df34164a2aafd6772e0cbb7f050f",
+                "reference": "d59ccd09ad42df34164a2aafd6772e0cbb7f050f",
                 "shasum": ""
             },
             "require": {
@@ -142,9 +142,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.20.0"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.20.1"
             },
-            "time": "2026-10-18T04:31:50+00:00"
+            "time": "2026-10-23T11:34:06+00:00"
         },
         {
             "name": "artisan-build/built-for-cloud-contracts",
@@ -603,16 +603,16 @@
         },
         {
             "name": "composer/semver",
-            "version": "3.5.1",
+            "version": "3.5.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/composer/semver.git",
-                "reference": "528948210cc46f967a4b98e83b19e76f2b504993"
+                "reference": "9dfce66f1e97360ea5e6d3e38ab14277e4cc591e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/composer/semver/zipball/528948210cc46f967a4b98e83b19e76f2b504993",
-                "reference": "528948210cc46f967a4b98e83b19e76f2b504993",
+                "url": "https://api.github.com/repos/composer/semver/zipball/9dfce66f1e97360ea5e6d3e38ab14277e4cc591e",
+                "reference": "9dfce66f1e97360ea5e6d3e38ab14277e4cc591e",
                 "shasum": ""
             },
             "require": {
@@ -664,7 +664,7 @@
             "support": {
                 "irc": "ircs://irc.libera.chat:6697/composer",
                 "issues": "https://github.com/composer/semver/issues",
-                "source": "https://github.com/composer/semver/tree/3.5.1"
+                "source": "https://github.com/composer/semver/tree/3.5.2"
             },
             "funding": [
                 {
@@ -676,7 +676,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-05T13:12:12+00:00"
+            "time": "2026-10-22T15:37:26+00:00"
         },
         {
             "name": "defuse/php-encryption",
