@@ -95,6 +95,7 @@ function honeIngest(
     string $url = 'https://hone.test/ingest',
     bool $discoveryEnabled = true,
     ?IngestDiscovery $discovery = null,
+    ?Core $nightwatch = null,
 ): HoneIngest {
     $discovery ??= new IngestDiscovery(
         endpoint: new HoneEndpoint($url),
@@ -114,7 +115,7 @@ function honeIngest(
         timeout: $timeout,
         http: app(Factory::class),
         logger: $logger ?? app(LoggerInterface::class),
-        nightwatch: (new ReflectionClass(Core::class))->newInstanceWithoutConstructor(),
+        nightwatch: $nightwatch ?? (new ReflectionClass(Core::class))->newInstanceWithoutConstructor(),
         cache: $cache,
         discovery: $discovery,
     );
@@ -522,6 +523,31 @@ it('keeps only the most recent records and reports overflow losses in web contex
     expect($logger->warnings)->toBe(1);
 });
 
+it('does not record its own buffer overflow warning', function (): void {
+    $nightwatch = (new ReflectionClass(Core::class))->newInstanceWithoutConstructor();
+    $logger = new class($nightwatch) extends AbstractLogger
+    {
+        public ?bool $nightwatchWasPaused = null;
+
+        public function __construct(private readonly Core $nightwatch) {}
+
+        /**
+         * @param  array<string, mixed>  $context
+         */
+        public function log($level, string|Stringable $message, array $context = []): void
+        {
+            $this->nightwatchWasPaused = $this->nightwatch->paused();
+        }
+    };
+    $ingest = honeIngest(bufferLimit: 1, logger: $logger, nightwatch: $nightwatch);
+
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->write(['t' => 'query', 'index' => 2]);
+
+    expect($logger->nightwatchWasPaused)->toBeTrue()
+        ->and($nightwatch->paused())->toBeFalse();
+});
+
 it('sends every console record in batches as the buffer fills', function (): void {
     $batches = [];
 
@@ -655,6 +681,42 @@ it('sends immediately from write now', function (): void {
     honeIngest()->writeNow(['t' => 'query']);
 
     Http::assertSentCount(1);
+});
+
+it('does not start a nested send when a record is written during delivery', function (): void {
+    Http::fake();
+
+    $ingest = null;
+    $recordedDuringDelivery = false;
+    $cache = Mockery::mock(CacheRepository::class);
+    $cache->shouldReceive('get')->twice()->andReturnUsing(function () use (&$ingest, &$recordedDuringDelivery): int {
+        if (! $recordedDuringDelivery) {
+            $recordedDuringDelivery = true;
+            $ingest->write(['t' => 'query', 'index' => 2]);
+        }
+
+        return 0;
+    });
+
+    $ingest = honeIngest(
+        bufferLimit: 1,
+        runningInConsole: true,
+        cache: $cache,
+        discoveryEnabled: false,
+    );
+
+    $ingest->shouldDigest(false);
+    $ingest->write(['t' => 'query', 'index' => 1]);
+    $ingest->shouldDigest();
+    $ingest->digest();
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => array_column($request['records'], 'index') === [1]);
+
+    $ingest->digest();
+
+    Http::assertSentCount(2);
+    expect(Http::recorded()[1][0]['records'])->toBe([['t' => 'query', 'index' => 2]]);
 });
 
 it('does not digest when the buffer reaches its limit during write', function (): void {

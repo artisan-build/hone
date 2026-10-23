@@ -54,6 +54,8 @@ final class HoneIngest implements Ingest
 
     private bool $overflowWarningLogged = false;
 
+    private bool $sending = false;
+
     /**
      * The connect budget, never above the total budget: cURL measures both from
      * the same instant, so a connect timeout larger than the total one can
@@ -90,6 +92,10 @@ final class HoneIngest implements Ingest
     {
         $this->oldestBufferedAt ??= Carbon::now();
         $this->buffer[] = $record;
+
+        if ($this->sending) {
+            return;
+        }
 
         if ($this->runningInConsole
             && (($this->shouldDigestWhenBufferIsFull && count($this->buffer) >= max(1, $this->bufferLimit))
@@ -145,47 +151,55 @@ final class HoneIngest implements Ingest
      */
     private function send(array $records, bool $clearBuffer): void
     {
-        if ($records === []) {
+        if ($records === [] || $this->sending) {
             return;
         }
 
-        $carriedFailedRecords = $this->carriedFailedDeliveryRecords();
+        $this->sending = true;
 
         try {
-            $destination = $this->discovery?->destination() ?? $this->url;
+            $this->nightwatch->ignore(function () use ($records, $clearBuffer): void {
+                if ($clearBuffer) {
+                    $this->buffer = [];
+                    $this->oldestBufferedAt = null;
+                }
 
-            $envelope = Envelope::make(
-                app: $this->app,
-                deploy: $this->deploy,
-                sentAt: Carbon::now()->toIso8601String(),
-                records: $records,
-                overflowDroppedRecords: $this->overflowDroppedRecords,
-                failedDeliveryRecords: $this->failedDeliveryRecords + $carriedFailedRecords,
-            )->toArray();
+                $carriedFailedRecords = $this->carriedFailedDeliveryRecords();
 
-            $this->nightwatch->ignore(fn () => $this->pendingRequest()
-                ->withToken($this->token)
-                ->connectTimeout($this->connectTimeout)
-                ->timeout($this->timeout)
-                ->post($destination, $envelope)
-                ->throw());
+                try {
+                    $destination = $this->discovery?->destination() ?? $this->url;
 
-            $this->overflowDroppedRecords = 0;
-            $this->failedDeliveryRecords = 0;
-            $this->forgetCarriedFailedDeliveryRecords($carriedFailedRecords);
-        } catch (Throwable $e) {
-            $failedRecords = count($records);
+                    $envelope = Envelope::make(
+                        app: $this->app,
+                        deploy: $this->deploy,
+                        sentAt: Carbon::now()->toIso8601String(),
+                        records: $records,
+                        overflowDroppedRecords: $this->overflowDroppedRecords,
+                        failedDeliveryRecords: $this->failedDeliveryRecords + $carriedFailedRecords,
+                    )->toArray();
 
-            $this->warnAboutFailedDelivery($failedRecords, $e);
+                    $this->pendingRequest()
+                        ->withToken($this->token)
+                        ->connectTimeout($this->connectTimeout)
+                        ->timeout($this->timeout)
+                        ->post($destination, $envelope)
+                        ->throw();
 
-            if (! $this->carryFailedDeliveryRecords($carriedFailedRecords + $failedRecords)) {
-                $this->failedDeliveryRecords += $carriedFailedRecords + $failedRecords;
-            }
+                    $this->overflowDroppedRecords = 0;
+                    $this->failedDeliveryRecords = 0;
+                    $this->forgetCarriedFailedDeliveryRecords($carriedFailedRecords);
+                } catch (Throwable $e) {
+                    $failedRecords = count($records);
+
+                    $this->warnAboutFailedDelivery($failedRecords, $e);
+
+                    if (! $this->carryFailedDeliveryRecords($carriedFailedRecords + $failedRecords)) {
+                        $this->failedDeliveryRecords += $carriedFailedRecords + $failedRecords;
+                    }
+                }
+            });
         } finally {
-            if ($clearBuffer) {
-                $this->buffer = [];
-                $this->oldestBufferedAt = null;
-            }
+            $this->sending = false;
         }
     }
 
@@ -205,7 +219,9 @@ final class HoneIngest implements Ingest
         $this->overflowWarningLogged = true;
 
         try {
-            $this->logger->warning('Hone ingest buffer overflowed; dropping the oldest telemetry records.');
+            $this->nightwatch->ignore(
+                fn () => $this->logger->warning('Hone ingest buffer overflowed; dropping the oldest telemetry records.')
+            );
         } catch (Throwable) {
             // Fail open even if the host application's logger is unavailable.
         }
