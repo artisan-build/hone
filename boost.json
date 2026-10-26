@@ -11,7 +11,9 @@
     "nightwatch": false,
     "sail": false,
     "skills": [
+        "infer-conventions",
         "laravel-best-practices",
-        "pest-testing"
+        "testing-best-practices",
+        "octane-development"
     ]
 }
