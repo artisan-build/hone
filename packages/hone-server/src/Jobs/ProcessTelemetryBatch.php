@@ -12,6 +12,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use PDOException;
 use Throwable;
 
@@ -76,6 +77,10 @@ final class ProcessTelemetryBatch implements ShouldQueue, SystemAuthorityQueueEn
      */
     private function rawEventRow(string $recordType, array $record, AsnLookup $asnLookup): array
     {
+        if (mb_strlen($recordType) > 255) {
+            throw new InvalidArgumentException('Record type exceeds 255 characters.');
+        }
+
         $enrichment = [
             'actor' => null,
             'ran_queries' => null,

@@ -30,6 +30,7 @@ pub struct RawEventRow {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RowBuildError {
     InvalidRequestHostEncoding,
+    RecordTypeTooLong,
     TimestampOutOfRange,
 }
 
@@ -37,6 +38,7 @@ impl RowBuildError {
     pub fn category(self) -> &'static str {
         match self {
             Self::InvalidRequestHostEncoding => "invalid_request_host_encoding",
+            Self::RecordTypeTooLong => "record_type_too_long",
             Self::TimestampOutOfRange => "timestamp_out_of_range",
         }
     }
@@ -70,6 +72,9 @@ pub fn build_row(
     }
 
     let record_type = record_type(record);
+    if record_type.chars().count() > 255 {
+        return Err(RowBuildError::RecordTypeTooLong);
+    }
     let enrichment = enrichment(&record_type, record, asn_lookup)?;
     let occurred_at = occurred_at(record, sent_at)?;
     let response = enrichment.response.as_ref().map(php_json_value);
@@ -569,6 +574,31 @@ mod tests {
     use crate::envelope::Envelope;
     use crate::test_support::TestDatabase;
     use crate::writer::Writer;
+
+    #[test]
+    fn rejects_oversized_record_types_without_truncating_valid_unicode_types() {
+        let valid = "界".repeat(255);
+        let row = build_row(
+            "checkout",
+            None,
+            "2026-06-09T12:00:00+00:00",
+            &json!({"t": valid}),
+            &AsnLookup::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(row.record_type, valid);
+
+        let error = build_row(
+            "checkout",
+            None,
+            "2026-06-09T12:00:00+00:00",
+            &json!({"t": format!("{valid}界")}),
+            &AsnLookup::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error, RowBuildError::RecordTypeTooLong);
+    }
 
     #[test]
     fn list_records_are_rows_with_unknown_named_fields() {
