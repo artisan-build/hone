@@ -294,6 +294,26 @@ it('reflects the latest occurred at timestamp for ingest freshness', function ()
         ->assertSee('2026-06-09T14:30:00.000000Z');
 });
 
+it('avoids grouping the raw retention window when reporting ingest freshness', function (): void {
+    Carbon::setTestNow('2026-06-09 15:00:00+00');
+    config()->set('hone-server.retention.raw_hours', 72);
+    RawEvent::factory()->create([
+        'app' => 'checkout',
+        'occurred_at' => Carbon::parse('2026-06-09 14:30:00', 'UTC'),
+    ]);
+    DB::connection('hone')->flushQueryLog();
+    DB::connection('hone')->enableQueryLog();
+
+    HoneMcpServer::tool(IngestFreshnessTool::class)->assertOk();
+
+    $fullWindowAggregates = collect(DB::connection('hone')->getQueryLog())
+        ->filter(static fn (array $query): bool => str_contains($query['query'], 'from "raw_events"')
+            && str_contains($query['query'], 'group by "app"'));
+    DB::connection('hone')->disableQueryLog();
+
+    expect($fullWindowAggregates)->toBeEmpty();
+});
+
 it('fails closed for unauthenticated web mcp requests', function (?string $presentedToken): void {
     config()->set('built-for-cloud.fallback_token', null);
     DB::connection('hone')->flushQueryLog();
