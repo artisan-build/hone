@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "46042cb07ce0389166a8c042a961a4dd",
+    "content-hash": "3f8e09249477fc44ad1385184e21287f",
     "packages": [
         {
             "name": "artisan-build/bfc-client",
@@ -70,16 +70,16 @@
         },
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.20.3",
+            "version": "v0.22.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "13eb91211607063e559c14e7d8d71ddb06b7e965"
+                "reference": "e4edce546130eba8cd41b3bafe8e2879d4c095dd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/13eb91211607063e559c14e7d8d71ddb06b7e965",
-                "reference": "13eb91211607063e559c14e7d8d71ddb06b7e965",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/e4edce546130eba8cd41b3bafe8e2879d4c095dd",
+                "reference": "e4edce546130eba8cd41b3bafe8e2879d4c095dd",
                 "shasum": ""
             },
             "require": {
@@ -142,9 +142,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.20.3"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.22.0"
             },
-            "time": "2026-10-26T08:36:32+00:00"
+            "time": "2026-10-30T12:37:42+00:00"
         },
         {
             "name": "artisan-build/built-for-cloud-contracts",
@@ -250,10 +250,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/hone-server",
-                "reference": "f99b7a3b36a3a424636b97dfbd21c809a0f61929"
+                "reference": "d80ab4efd4e50d220d83a4cc0b28791db1b42394"
             },
             "require": {
-                "artisan-build/built-for-cloud": "^0.20",
+                "artisan-build/built-for-cloud": "^0.20 || ^0.21.0 || ^0.22.0",
                 "artisan-build/hone-contracts": "^1.6",
                 "illuminate/contracts": "^13.0",
                 "illuminate/database": "^13.0",
@@ -5810,16 +5810,16 @@
         },
         {
             "name": "symfony/mime",
-            "version": "v8.1.7",
+            "version": "v8.1.10",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/mime.git",
-                "reference": "773ac57f20e2795bdadb65b5b1b5f4850d498283"
+                "reference": "8d1232052c9cdef170ed9608b3147bca4f61ff69"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/mime/zipball/773ac57f20e2795bdadb65b5b1b5f4850d498283",
-                "reference": "773ac57f20e2795bdadb65b5b1b5f4850d498283",
+                "url": "https://api.github.com/repos/symfony/mime/zipball/8d1232052c9cdef170ed9608b3147bca4f61ff69",
+                "reference": "8d1232052c9cdef170ed9608b3147bca4f61ff69",
                 "shasum": ""
             },
             "require": {
@@ -5872,7 +5872,7 @@
                 "mime-type"
             ],
             "support": {
-                "source": "https://github.com/symfony/mime/tree/v8.1.7"
+                "source": "https://github.com/symfony/mime/tree/v8.1.10"
             },
             "funding": [
                 {
@@ -5892,7 +5892,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-09-04T11:02:17+00:00"
+            "time": "2026-10-28T17:58:38+00:00"
         },
         {
             "name": "symfony/polyfill-ctype",
@@ -6233,16 +6233,16 @@
         },
         {
             "name": "symfony/polyfill-mbstring",
-            "version": "v1.43.0",
+            "version": "v1.43.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-mbstring.git",
-                "reference": "4d5d331bf731e0aedbc6b2f5e61135b7b7996a72"
+                "reference": "122889ed24dc000165bcbfd77ec412f15cbdfc6a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/4d5d331bf731e0aedbc6b2f5e61135b7b7996a72",
-                "reference": "4d5d331bf731e0aedbc6b2f5e61135b7b7996a72",
+                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/122889ed24dc000165bcbfd77ec412f15cbdfc6a",
+                "reference": "122889ed24dc000165bcbfd77ec412f15cbdfc6a",
                 "shasum": ""
             },
             "require": {
@@ -6294,7 +6294,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.43.0"
+                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.43.3"
             },
             "funding": [
                 {
@@ -6314,7 +6314,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-09-24T15:19:04+00:00"
+            "time": "2026-10-28T09:35:49+00:00"
         },
         {
             "name": "symfony/polyfill-php80",

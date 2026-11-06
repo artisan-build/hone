@@ -281,6 +281,38 @@ it('persists a batch containing an over-length query key in a single chunk inser
     Log::shouldNotHaveReceived('warning');
 });
 
+it('isolates over-length custom types before inserting valid neighboring rows', function (): void {
+    Log::spy();
+    $validType = str_repeat('界', 255);
+    $invalidType = $validType.'界';
+    $inserts = 0;
+    DB::connection('hone')->listen(function (QueryExecuted $query) use (&$inserts): void {
+        if (str_starts_with(strtolower($query->sql), 'insert into "raw_events"')) {
+            $inserts++;
+        }
+    });
+
+    (new ProcessTelemetryBatch(
+        app: 'checkout',
+        deploy: null,
+        sentAt: '2026-06-09T12:00:00+00:00',
+        records: [
+            ['t' => 'query', 'sql' => 'select good_one'],
+            ['t' => $invalidType],
+            ['t' => $validType],
+            ['t' => 'query', 'sql' => 'select good_two'],
+        ],
+    ))->handle(resolve(AsnLookup::class));
+
+    expect(RawEvent::query()->orderBy('id')->pluck('record_type')->all())
+        ->toBe(['query', $validType, 'query']);
+    expect($inserts)->toBe(1);
+    Log::shouldHaveReceived('warning')->once()
+        ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'building the row failed')
+            && ! str_contains($message, '界')
+            && $context['record_type'] === 'custom');
+});
+
 it('falls back around a rejected row and logs the record type and cause without row values', function (): void {
     Log::spy();
     DB::connection('hone')->statement("ALTER TABLE raw_events ADD CONSTRAINT raw_events_reject_queries CHECK (record_type <> 'query')");
