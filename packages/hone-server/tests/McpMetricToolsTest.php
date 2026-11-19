@@ -518,6 +518,36 @@ it('reports the real total with a zero-age freshness field when today is aggrega
         ]);
 });
 
+it('does not report full coverage when the newest rolled up hour is stale within the current day', function (): void {
+    Carbon::setTestNow('2026-11-19 18:05:00+00');
+    seedAggregateBucket('checkout', 'request', 'POST /mcp', Carbon::now('UTC')->startOfDay(), 40, 1, 1, 1, 1);
+    DB::connection('hone')->table('hourly_aggregate_rollups')->insert([
+        'app' => 'checkout',
+        'record_type' => 'request',
+        'normalized_key' => 'POST /mcp',
+        'deploy' => null,
+        'bucket_hour' => '2026-11-19 15:00:00+00',
+        'sample_count' => 40,
+        'numeric_count' => 40,
+        'numeric_sum' => 40,
+        'max_value' => 1,
+        'histogram' => '{}',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $payload = honeToolPayload(HoneMcpServer::tool(QueryMetricTool::class, [
+        'record_type' => 'request',
+        'metric' => 'count',
+        'normalized_key' => 'POST /mcp',
+        'app' => 'checkout',
+        'days' => 1,
+    ])->assertOk());
+
+    expect($payload['metrics'][0]['value'])->toBe(40)
+        ->and($payload['aggregate_freshness']['covers_window'])->toBeFalse();
+});
+
 it('says no aggregates exist yet rather than returning a bare zero on an empty install', function (): void {
     $freshness = app(AggregateWindow::class)->freshness(7);
 
