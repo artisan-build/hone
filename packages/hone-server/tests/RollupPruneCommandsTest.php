@@ -5,6 +5,7 @@ declare(strict_types=1);
 use ArtisanBuild\HoneServer\Maintenance\LogarithmicHistogram;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceHealth;
 use ArtisanBuild\HoneServer\Maintenance\MaintenanceMarkers;
+use ArtisanBuild\HoneServer\Maintenance\RawEventRollup;
 use ArtisanBuild\HoneServer\Models\Aggregate;
 use ArtisanBuild\HoneServer\Models\RawEvent;
 use ArtisanBuild\HoneServer\Models\Sample;
@@ -90,6 +91,62 @@ it('merges hourly histograms into daily percentiles within the documented error 
     }
 
     expect(DB::connection('hone')->table('hourly_aggregate_rollups')->distinct('bucket_hour')->count('bucket_hour'))->toBe(10);
+});
+
+it('does not derive a linear daily percentile from added lower-bin samples', function (): void {
+    $eventAttributes = [
+        'app' => 'checkout',
+        'record_type' => 'query',
+        'normalized_key' => 'accumulating-day-percentile',
+        'deploy' => 'abc123',
+        'occurred_at' => Carbon::parse('2026-06-09 12:00:00+00'),
+    ];
+
+    foreach ([...array_fill(0, 26, 1), 50, 200, 200] as $duration) {
+        RawEvent::factory()->create($eventAttributes + ['payload' => ['duration_ms' => $duration]]);
+    }
+
+    $sampleCounts = [];
+    $p95Values = [];
+    $p99Values = [];
+    $maxValues = [];
+
+    foreach ([0, 1, 2, 2] as $additionalLowerBinSamples) {
+        RawEvent::factory()->count($additionalLowerBinSamples)->create(
+            $eventAttributes + ['payload' => ['duration_ms' => 1]],
+        );
+
+        app(RawEventRollup::class)->rollupDay(
+            CarbonImmutable::parse('2026-06-09'),
+            Carbon::now(),
+        );
+
+        $aggregates = Aggregate::query()
+            ->where('normalized_key', 'accumulating-day-percentile')
+            ->get()
+            ->keyBy('metric');
+
+        $sampleCounts[] = (int) $aggregates['p95']->sample_count;
+        $p95Values[] = (float) $aggregates['p95']->value;
+        $p99Values[] = (float) $aggregates['p99']->value;
+        $maxValues[] = (float) $aggregates['max']->value;
+    }
+
+    $perSampleChanges = [];
+
+    foreach (range(1, count($sampleCounts) - 1) as $index) {
+        $perSampleChanges[] = number_format(
+            ($p95Values[$index] - $p95Values[$index - 1]) / ($sampleCounts[$index] - $sampleCounts[$index - 1]),
+            12,
+            '.',
+            '',
+        );
+    }
+
+    expect($sampleCounts)->toBe([29, 30, 32, 34])
+        ->and(array_unique($maxValues))->toHaveCount(1)
+        ->and(array_unique($p99Values))->toHaveCount(1)
+        ->and(count(array_unique($perSampleChanges)))->toBeGreaterThan(1);
 });
 
 it('converts Nightwatch microsecond durations to milliseconds', function (): void {
