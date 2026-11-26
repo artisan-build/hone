@@ -133,7 +133,7 @@ Generate fresh source-app telemetry, then verify server-side receipt rather than
 php artisan about
 ```
 
-After the command terminates and the Hone queue worker processes the batch, call the Hone MCP tool `ingest-freshness-tool`. A working end-to-end integration returns the token's `<app-id>` with fresh ISO-8601 timestamps:
+After the command terminates and the Hone queue worker processes the batch, call the Hone MCP tool `ingest_freshness`. A working end-to-end integration returns the token's `<app-id>` with fresh ISO-8601 timestamps:
 
 ```json
 {

@@ -104,7 +104,7 @@ function honeMcpAbsent(): string
  * @param  array<string, mixed>  $arguments
  * @return array<string, mixed>
  */
-function honeMcpToolCall(string $name = 'list-apps-tool', array $arguments = []): array
+function honeMcpToolCall(string $name = 'list_apps', array $arguments = []): array
 {
     return [
         'jsonrpc' => '2.0',

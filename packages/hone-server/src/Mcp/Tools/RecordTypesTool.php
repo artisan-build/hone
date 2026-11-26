@@ -19,8 +19,10 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
+#[Name('record_types')]
 #[Description('List raw telemetry record types and counts within a lookback window, optionally scoped to one app.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]

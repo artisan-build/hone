@@ -19,8 +19,10 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
+#[Name('list_apps')]
 #[Description('List apps reporting telemetry to Hone within a lookback window with their latest raw event timestamp.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]

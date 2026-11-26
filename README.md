@@ -713,7 +713,7 @@ Then generate some telemetry and check the **server** received it:
 php artisan about
 ```
 
-Once the Hone deployment's queue worker has processed the batch, call the `ingest-freshness-tool` MCP
+Once the Hone deployment's queue worker has processed the batch, call the `ingest_freshness` MCP
 tool (see the next section). Your installation ref should appear with timestamps that advance:
 
 ```json
@@ -734,7 +734,7 @@ The MCP server is mounted at `HONE_MCP_PATH` (default `/mcp`) and requires an
 
 > **An MCP credential reads the whole deployment, not one app.** It authenticates the endpoint; it
 > carries no app filter. Every tool can query every app reporting to this Hone instance —
-> `list-apps-tool` returns all of them, and the tools that take an `app` argument let the caller choose
+> `list_apps` returns all of them, and the tools that take an `app` argument let the caller choose
 > any of them. So name it after the deployment, not after an app, and treat it as read access to all
 > that customer's telemetry. There is no per-app MCP credential.
 
@@ -803,7 +803,7 @@ claude mcp list
 ```
 
 `hone` should be listed and health-checked. After the restart, Hone's tools appear to the agent as
-`mcp__hone__slow_requests`, `mcp__hone__list-apps-tool` and so on, and you can ask questions in plain
+`mcp__hone__slow_requests`, `mcp__hone__list_apps` and so on, and you can ask questions in plain
 language: *"Using Hone, what got slower after the last deploy?"*
 
 To remove it again:
@@ -829,10 +829,21 @@ only 15, it stopped at the first page.
 
 | Group | Tools |
 | --- | --- |
-| Discovery | `list-apps-tool`, `record-types-tool`, `deploys-tool`, `ingest-freshness-tool` |
+| Discovery | `list_apps`, `record_types`, `deploys`, `ingest_freshness` |
 | Slow things | `slow_requests`, `slow_queries`, `slow_jobs`, `slow_outgoing_requests` |
 | Analysis | `query_metric`, `regression_check`, `exceptions`, `top_users` |
 | Volume and health | `cache_stats`, `queue_throughput`, `mail_volume`, `notification_volume`, `scheduled_task_health`, `command_stats`, `log_volume_by_level` |
+
+The server also serves one skill through the MCP Skills extension: `hone-investigate`, a read-only
+investigation playbook (check coverage first, then errors, slow routes and regressions, and report
+missing evidence as missing). Clients that support Skills over MCP, such as Claude Code 2.1.331 or
+later and VS Code 1.147 or later, list it as `hone:hone-investigate`. Other clients see it as an
+ordinary `skill://hone-investigate/SKILL.md` resource. Its source is
+[`packages/hone-server/resources/skills/hone-investigate/SKILL.md`](packages/hone-server/resources/skills/hone-investigate/SKILL.md).
+
+Releases before this one named four tools in kebab case (`list-apps-tool`, `ingest-freshness-tool`,
+`deploys-tool`, `record-types-tool`). They are now `list_apps`, `ingest_freshness`, `deploys` and
+`record_types`; update any prompt or script that names the old ones.
 
 In practice you ask your agent a question in English and it picks the tool. Calling one by hand looks
 like this, reusing the curl configuration file from the previous section:
