@@ -68,4 +68,13 @@ final class HoneMcpServer extends Server
         GuestTrafficClustersTool::class,
         EdgeProfileTool::class,
     ];
+
+    /**
+     * Skill folders served through the MCP Skills extension.
+     *
+     * @var array<int, string>
+     */
+    protected array $skills = [
+        __DIR__.'/../../resources/skills/hone-investigate',
+    ];
 }

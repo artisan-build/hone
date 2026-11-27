@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
 use Laravel\Mcp\Server\Middleware\ValidateMcpHeaders;
+use Laravel\Mcp\Server\Middleware\ValidateOrigin;
 
 it('serves the package-owned Hone landing page', function (): void {
     $this->get(route('bfc.landing'))
@@ -49,6 +50,7 @@ it('keeps the MCP POST route outside every session middleware group', function (
     $route = Route::getRoutes()->match(Request::create($path, 'POST'));
 
     expect(resolve('router')->gatherRouteMiddleware($route))->toBe([
+        ValidateOrigin::class,
         ReorderJsonAccept::class,
         ValidateMcpHeaders::class,
         AddWwwAuthenticateHeader::class,

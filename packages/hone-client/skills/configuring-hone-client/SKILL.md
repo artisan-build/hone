@@ -40,7 +40,7 @@ URL** and an installation-owned **hone.ingest credential** issued by Built for C
    (`echo "NIGHTWATCH_DEPLOY=$(git rev-parse --short HEAD)" >> .env`) so Hone can compare releases.
 5. **Confirm receipt on the Hone side.** Generate traffic (serve a few requests / run a few `php artisan`
    commands — telemetry flushes on request/command **termination**), then query Hone over MCP: the
-   `list-apps-tool` / `ingest-freshness-tool` should show this app reporting.
+   `list_apps` / `ingest_freshness` should show this app reporting.
 
 ## How it works (so you debug the right layer)
 

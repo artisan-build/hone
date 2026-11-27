@@ -20,8 +20,10 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
+#[Name('deploys')]
 #[Description('List recent non-null deploy ids with first and last raw event timestamps within a lookback window, optionally scoped to one app.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]

@@ -134,7 +134,7 @@ function honeMcpListAppsCall(): array
         'id' => 1,
         'method' => 'tools/call',
         'params' => [
-            'name' => 'list-apps-tool',
+            'name' => 'list_apps',
             'arguments' => [],
         ],
     ];

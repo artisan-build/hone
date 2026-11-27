@@ -21,8 +21,10 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
+#[Name('ingest_freshness')]
 #[Description('List each app with the latest raw event timestamp, cumulative client loss counters by app and deploy, aggregate freshness, and overall maintenance health.')]
 #[IsReadOnly]
 #[ToolClassification(Classification::Content)]

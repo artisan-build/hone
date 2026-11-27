@@ -195,7 +195,7 @@ it('neither lists nor calls a read tool without a request effect ceiling', funct
     HoneMcpServer::tools()->assertNotRegistered(ListAppsTool::class);
 
     HoneMcpServer::tool(ListAppsTool::class)
-        ->assertHasErrors(['Tool [list-apps-tool] not found.']);
+        ->assertHasErrors(['Tool [list_apps] not found.']);
 });
 
 it('conforms to the package MCP product admission contract', function (): void {
